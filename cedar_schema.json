@@ -1,0 +1,82 @@
+{
+  "HodeiMVP": {
+    "entityTypes": {
+      "Document": {
+        "memberOfTypes": [],
+        "attributes": {
+          "owner_id": {
+            "type": "String",
+            "required": true
+          },
+          "is_public": {
+            "type": "Boolean",
+            "required": true
+          },
+          "tenant_id": {
+            "type": "String"
+          },
+          "service": {
+            "type": "String"
+          }
+        }
+      },
+      "User": {
+        "memberOfTypes": [],
+        "attributes": {
+          "role": {
+            "type": "String",
+            "required": true
+          },
+          "tenant_id": {
+            "type": "String"
+          },
+          "service": {
+            "type": "String"
+          }
+        }
+      }
+    },
+    "actions": {
+      "Create": {
+        "appliesTo": {
+          "principalTypes": [
+            "User"
+          ],
+          "resourceTypes": [
+            "Document"
+          ]
+        }
+      },
+      "Delete": {
+        "appliesTo": {
+          "principalTypes": [
+            "User"
+          ],
+          "resourceTypes": [
+            "Document"
+          ]
+        }
+      },
+      "Read": {
+        "appliesTo": {
+          "principalTypes": [
+            "User"
+          ],
+          "resourceTypes": [
+            "Document"
+          ]
+        }
+      },
+      "Update": {
+        "appliesTo": {
+          "principalTypes": [
+            "User"
+          ],
+          "resourceTypes": [
+            "Document"
+          ]
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,44 @@
+[workspace]
+members = [
+    "kernel",
+    "hodei_provider",
+    "hodei_provider_derive",
+    "hodei_domain",
+]
+resolver = "2"
+
+[package]
+name = "hodei_cedar_mvp_kernel"
+version = "0.1.0"
+edition = "2024"
+build = "build.rs"
+
+[dependencies]
+kernel = { path = "kernel", features = ["sqlx"] }
+hodei_provider = { path = "hodei_provider" }
+hodei_domain = { path = "hodei_domain" }
+
+axum = { version = "0.8.6", features = ["macros"] }
+axum-extra = { version = "0.10.3", features = ["typed-header"] }
+tokio = { version = "1.37.0", features = ["full"] }
+sqlx = { version = "0.8.6", features = [ "runtime-tokio-rustls", "postgres", "macros" ] }
+dotenvy = "0.15.7"
+serde = { version = "1.0.203", features = ["derive"] }
+serde_json = "1.0.117"
+tracing = "0.1.40"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+thiserror = "2.0.17"
+cedar-policy = "4.7.0"
+async-trait = "0.1.80"
+
+[build-dependencies]
+serde_json = "1.0.117"
+hodei_provider = { path = "hodei_provider" }
+hodei_domain = { path = "hodei_domain", features = ["schema-discovery"] }
+
+[features]
+schema-discovery = []
+
+# Configuración para SQLx offline mode
+[package.metadata.sqlx]
+offline = true

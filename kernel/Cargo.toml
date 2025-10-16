@@ -1,0 +1,9 @@
+[package]
+name = "kernel"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+serde = { version = "1.0.203", features = ["derive"] }
+thiserror = "2.0.12"
+sqlx = { version = "0.8.6", optional = true, features = ["postgres"] }
