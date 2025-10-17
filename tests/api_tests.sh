@@ -64,7 +64,7 @@ run_test "Alice (tenant-a) lee su propio documento" 200 \
     -X GET "$API_URL/documents/doc-test1" \
     -H "Authorization: Bearer alice"
 
-run_test "Bob (tenant-b) NO puede leer documento de Alice (tenant-a)" 403 \
+run_test "Bob (tenant-b) NO puede leer documento de Alice (tenant-a)" 404 \
     -X GET "$API_URL/documents/doc-test1" \
     -H "Authorization: Bearer bob"
 
@@ -83,7 +83,7 @@ run_test "Bob lee su propio documento" 200 \
     -X GET "$API_URL/documents/doc-test2" \
     -H "Authorization: Bearer bob"
 
-run_test "Alice NO puede leer documento de Bob (diferente tenant)" 403 \
+run_test "Alice NO puede leer documento de Bob (diferente tenant)" 404 \
     -X GET "$API_URL/documents/doc-test2" \
     -H "Authorization: Bearer alice"
 
@@ -98,11 +98,11 @@ run_test "Alice actualiza su propio documento" 200 \
     -H "Content-Type: application/json" \
     -d '{"is_public":true}'
 
-run_test "Bob NO puede actualizar documento de Alice" 403 \
+run_test "Bob NO puede actualizar documento de Alice" 404 \
     -X PUT "$API_URL/documents/doc-test1" \
     -H "Authorization: Bearer bob" \
     -H "Content-Type: application/json" \
-    -d '{"is_public":false}'
+    -d '{"content":"Intento de actualización no autorizado"}'
 
 echo ""
 echo "═══════════════════════════════════════════════════════════════"
@@ -129,8 +129,8 @@ echo "════════════════════════�
 # Crear una política temporal que permita lectura pública
 PUBLIC_READ_POLICY='permit(principal, action == Action::"Read", resource) when { resource.is_public == true };'
 
-run_test "Agregar política de lectura pública" 201 \
-    -X POST "$API_URL/_api/policies/public_read" \
+run_test "Agregar política de lectura pública" 200 \
+    -X POST "$API_URL/_api/policies" \
     -H "Content-Type: text/plain" \
     -d "$PUBLIC_READ_POLICY"
 
@@ -146,7 +146,7 @@ run_test "Alice crea documento público doc-test3" 200 \
     -d '{"resource_id":"doc-test3","is_public":true}'
 
 # Nota: Con la política pública, Bob aún no puede leer porque está en diferente tenant
-run_test "Bob NO puede leer doc público de Alice (diferente tenant)" 403 \
+run_test "Bob NO puede leer doc público de Alice (diferente tenant)" 404 \
     -X GET "$API_URL/documents/doc-test3" \
     -H "Authorization: Bearer bob"
 

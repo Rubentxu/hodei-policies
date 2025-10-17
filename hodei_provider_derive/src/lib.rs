@@ -1,8 +1,29 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, Data, DeriveInput, Fields, Lit};
+use syn::{parse_macro_input, Data, DeriveInput, Fields, Lit, Meta};
+use serde_json;
 
-#[proc_macro_derive(HodeiEntity, attributes(hodei))]
+/// Extrae el tipo de entidad desde los atributos del campo
+/// Busca atributos como: #[entity_type = "MyNamespace::MyEntity"]
+fn extract_entity_type_from_attrs(attrs: &[syn::Attribute]) -> Option<String> {
+    for attr in attrs {
+        if attr.path().is_ident("entity_type") {
+            if let Meta::NameValue(meta) = &attr.meta {
+                if let syn::Expr::Lit(expr_lit) = &meta.value {
+                    if let Lit::Str(lit_str) = &expr_lit.lit {
+                        return Some(lit_str.value());
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+// Función de inferencia eliminada - ahora el atributo #[entity_type] es OBLIGATORIO
+// para todos los campos de tipo Hrn. Esto hace el sistema completamente escalable.
+
+#[proc_macro_derive(HodeiEntity, attributes(hodei, entity_type))]
 pub fn hodei_entity_derive(input: TokenStream) -> TokenStream {
     let ast = parse_macro_input!(input as DeriveInput);
     let struct_name = &ast.ident;
@@ -40,10 +61,18 @@ pub fn hodei_entity_derive(input: TokenStream) -> TokenStream {
                 // Determinar el tipo Cedar basado en el tipo Rust
                 let schema_type = if type_ident == "Hrn" {
                     // Hrn se convierte a Entity en Cedar
-                    // Asumimos que es un User por defecto, pero esto podría ser más específico
+                    // El atributo #[entity_type = "Namespace::EntityType"] es OBLIGATORIO
+                    let entity_type = extract_entity_type_from_attrs(&field.attrs)
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "Campo '{}' de tipo Hrn requiere el atributo #[entity_type = \"Namespace::EntityType\"]\n\
+                                Ejemplo: #[entity_type = \"MyApp::User\"]",
+                                field_name
+                            )
+                        });
                     serde_json::json!({
                         "type": "Entity",
-                        "name": "HodeiMVP::User",
+                        "name": entity_type,
                         "required": true
                     })
                 } else {
@@ -60,10 +89,20 @@ pub fn hodei_entity_derive(input: TokenStream) -> TokenStream {
                 
                 let value_expr = if type_ident == "Hrn" {
                     // Convertir Hrn a EntityUid en Cedar
+                    // El atributo #[entity_type = "Namespace::EntityType"] es OBLIGATORIO
+                    let entity_type = extract_entity_type_from_attrs(&field.attrs)
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "Campo '{}' de tipo Hrn requiere el atributo #[entity_type = \"Namespace::EntityType\"]\n\
+                                Ejemplo: #[entity_type = \"MyApp::User\"]",
+                                field_name
+                            )
+                        });
+                    let entity_type_lit = syn::LitStr::new(&entity_type, proc_macro2::Span::call_site());
                     quote! { 
                         {
                             let euid = cedar_policy::EntityUid::from_type_name_and_id(
-                                "HodeiMVP::User".parse().unwrap(),
+                                #entity_type_lit.parse().unwrap(),
                                 self.#field_ident.to_string().parse().unwrap(),
                             );
                             cedar_policy::RestrictedExpression::new_entity_uid(euid)
