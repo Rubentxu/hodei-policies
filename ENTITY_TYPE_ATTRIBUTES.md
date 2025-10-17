@@ -15,7 +15,7 @@ use hodei_provider::HodeiEntity;
 use kernel::domain::value_objects::Hrn;
 
 #[derive(HodeiEntity)]
-#[hodei(entity_type = "MyApp::Document")]
+#[hodei-authz-sdk(entity_type = "MyApp::Document")]
 pub struct Document {
     pub id: Hrn,
     pub owner_id: Hrn,        // Inferido como "MyApp::User"
@@ -42,7 +42,7 @@ use hodei_provider::HodeiEntity;
 use kernel::domain::value_objects::Hrn;
 
 #[derive(HodeiEntity)]
-#[hodei(entity_type = "MyApp::Document")]
+#[hodei-authz-sdk(entity_type = "MyApp::Document")]
 pub struct Document {
     pub id: Hrn,
     
@@ -65,7 +65,7 @@ pub struct Document {
 
 ```rust
 #[derive(HodeiEntity)]
-#[hodei(entity_type = "SaaS::Workspace")]
+#[hodei-authz-sdk(entity_type = "SaaS::Workspace")]
 pub struct Workspace {
     pub id: Hrn,
     
@@ -84,7 +84,7 @@ pub struct Workspace {
 
 ```rust
 #[derive(HodeiEntity)]
-#[hodei(entity_type = "IAM::Permission")]
+#[hodei-authz-sdk(entity_type = "IAM::Permission")]
 pub struct Permission {
     pub id: Hrn,
     
@@ -105,7 +105,7 @@ pub struct Permission {
 
 ```rust
 #[derive(HodeiEntity)]
-#[hodei(entity_type = "Integration::SyncJob")]
+#[hodei-authz-sdk(entity_type = "Integration::SyncJob")]
 pub struct SyncJob {
     pub id: Hrn,
     
@@ -206,13 +206,13 @@ pub struct Document {
 }
 
 // DESPUÉS (inferido con tu namespace)
-#[hodei(entity_type = "MiApp::Document")]
+#[hodei-authz-sdk(entity_type = "MiApp::Document")]
 pub struct Document {
     pub owner_id: Hrn,  // Ahora es "MiApp::User"
 }
 
 // O EXPLÍCITO (control total)
-#[hodei(entity_type = "MiApp::Document")]
+#[hodei-authz-sdk(entity_type = "MiApp::Document")]
 pub struct Document {
     #[entity_type = "MiApp::User"]
     pub owner_id: Hrn,

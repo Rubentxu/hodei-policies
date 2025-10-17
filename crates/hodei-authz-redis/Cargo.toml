@@ -1,0 +1,23 @@
+[package]
+name = "hodei-authz-redis"
+version = "0.1.0"
+edition = "2021"
+authors = ["Ruben Dario Cabrera Garcia <rubentxu74@gmail.com>"]
+description = "Redis cache adapter for Hodei authorization framework"
+license = "MIT"
+repository = "https://github.com/Rubentxu/hodei-policies"
+documentation = "https://docs.rs/hodei-authz-redis"
+keywords = ["authorization", "redis", "cache", "invalidation"]
+categories = ["authentication", "caching"]
+readme = "README.md"
+
+[dependencies]
+hodei-authz = { workspace = true }
+redis = { version = "0.32", features = ["tokio-comp"] }
+async-trait = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+futures-util = "0.3"
+
+[dev-dependencies]
+tokio = { workspace = true }

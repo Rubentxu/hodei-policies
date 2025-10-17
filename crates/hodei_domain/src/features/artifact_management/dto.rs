@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
-use hodei_provider::HodeiAction;
+use hodei_authz::HodeiAction;
 use cedar_policy::{Entity, EntityUid};
-use hodei_kernel::api::Hrn;
+use hodei_hrn::api::Hrn;
 
 // ============================================================================
 // Comandos para Artifact

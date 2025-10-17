@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
-use hodei_provider::HodeiEntity;
+use hodei_authz::HodeiEntity;
 use cedar_policy::{Entity, EntityUid};
-use hodei_kernel::api::Hrn;
+use hodei_hrn::api::Hrn;
 
 #[derive(Debug, Clone)]
 pub struct RequestContext {

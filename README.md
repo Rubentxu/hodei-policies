@@ -13,7 +13,7 @@ Motor de autorización avanzado construido en Rust con Cedar Policy, diseñado p
 ## 🏗️ Arquitectura
 
 ```
-hodei-policies/
+hodei-authz-sdk-policies/
 ├── kernel/                    # Tipo Hrn (identidad fuerte)
 ├── hodei_provider/            # Traits y colección de esquema
 ├── hodei_provider_derive/     # Macros procedurales
@@ -227,7 +227,7 @@ El sistema usa **schema-as-code**. Para agregar una nueva entidad:
 // En hodei_domain/src/lib.rs
 
 #[derive(Debug, Serialize, Deserialize, Clone, HodeiEntity, sqlx::FromRow)]
-#[hodei(entity_type = "HodeiMVP::Project")]
+#[hodei-authz-sdk(entity_type = "HodeiMVP::Project")]
 pub struct Project {
     pub id: Hrn,
     pub name: String,
@@ -235,11 +235,11 @@ pub struct Project {
 }
 
 #[derive(Debug, Clone, HodeiAction)]
-#[hodei(namespace = "HodeiMVP")]
+#[hodei-authz-sdk(namespace = "HodeiMVP")]
 pub enum ProjectCommand {
-    #[hodei(principal = "User", resource = "Project", creates_resource)]
+    #[hodei-authz-sdk(principal = "User", resource = "Project", creates_resource)]
     Create(ProjectCreatePayload),
-    #[hodei(principal = "User", resource = "Project")]
+    #[hodei-authz-sdk(principal = "User", resource = "Project")]
     Read { id: Hrn },
 }
 ```

@@ -1,0 +1,35 @@
+[package]
+name = "hodei-authz-sdk"
+version = "0.1.0"
+edition = "2021"
+authors = ["Ruben Dario Cabrera Garcia <rubentxu74@gmail.com>"]
+description = "Cedar Policy-based authorization framework for Rust applications"
+license = "MIT"
+repository = "https://github.com/Rubentxu/hodei-policies"
+documentation = "https://docs.rs/hodei"
+keywords = ["authorization", "cedar", "iam", "policy", "framework"]
+categories = ["authentication", "web-programming"]
+readme = "README.md"
+
+[dependencies]
+hodei-hrn = { workspace = true }
+hodei-authz = { workspace = true }
+hodei-derive = { workspace = true }
+hodei-authz-postgres = { workspace = true, optional = true }
+hodei-authz-redis = { workspace = true, optional = true }
+hodei-authz-axum = { workspace = true, optional = true }
+
+# Para el builder y schema
+cedar-policy = "4.2"
+sqlx = { workspace = true }
+tokio = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[features]
+default = []
+postgres = ["hodei-authz-postgres"]
+redis = ["hodei-authz-redis"]
+axum = ["hodei-authz-axum"]
+full = ["postgres", "redis", "axum"]

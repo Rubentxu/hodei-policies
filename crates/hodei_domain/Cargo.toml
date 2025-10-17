@@ -13,8 +13,9 @@ categories = ["authentication", "web-programming"]
 readme = "../README.md"
 
 [dependencies]
-hodei-provider = { workspace = true }
-hodei-kernel = { path = "../kernel", workspace = true }
+hodei-hrn = { workspace = true }
+hodei-authz = { workspace = true }
+hodei-derive = { workspace = true }
 cedar-policy = { workspace = true }
 serde = { workspace = true }
 sqlx = { workspace = true, features = ["postgres", "macros"] }

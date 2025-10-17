@@ -1,0 +1,48 @@
+[package]
+name = "app-example"
+version = "0.1.0"
+edition = "2021"
+authors = ["Ruben Dario Cabrera Garcia <rubentxu74@gmail.com>"]
+description = "Example application using Hodei Framework - Multi-tenant authorization with Cedar Policy"
+license = "MIT"
+repository = "https://github.com/Rubentxu/hodei-policies"
+homepage = "https://github.com/Rubentxu/hodei-policies"
+keywords = ["authorization", "cedar", "policy", "example"]
+categories = ["authentication", "web-programming"]
+readme = "README.md"
+publish = false
+
+[dependencies]
+# Framework Hodei completo (usando el SDK)
+hodei-authz-sdk = { workspace = true, features = ["postgres", "redis", "axum"] }
+hodei-hrn = { workspace = true }
+hodei-derive = { workspace = true }
+hodei-authz = { workspace = true }
+hodei-authz-postgres = { workspace = true }
+hodei-authz-redis = { workspace = true }
+hodei-authz-axum = { workspace = true }
+
+# Web framework
+axum = { workspace = true }
+axum-extra = { workspace = true }
+tokio = { workspace = true }
+
+# Database
+sqlx = { workspace = true }
+
+# Utilities
+dotenvy = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+uuid = { version = "1.11", features = ["v4"] }
+cedar-policy = "4.2"
+
+[dev-dependencies]
+reqwest = { workspace = true }
+
+[package.metadata.sqlx]
+offline = true

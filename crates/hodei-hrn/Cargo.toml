@@ -1,0 +1,27 @@
+[package]
+name = "hodei-hrn"
+version = "0.1.0"
+edition = "2024"
+authors = ["Ruben Dario Cabrera Garcia <rubentxu74@gmail.com>"]
+description = "Core types for Hodei authorization framework - HRN and RequestContext"
+license = "MIT"
+repository = "https://github.com/Rubentxu/hodei-policies"
+homepage = "https://github.com/Rubentxu/hodei-policies"
+documentation = "https://docs.rs/hodei-hrn"
+keywords = ["authorization", "hrn", "resource-name", "iam"]
+categories = ["authentication", "data-structures"]
+readme = "README.md"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+validator = { workspace = true }
+chrono = { workspace = true }
+sqlx = { workspace = true, optional = true }
+
+[dev-dependencies]
+proptest = "1.0"
+
+[features]
+sqlx = ["dep:sqlx"]

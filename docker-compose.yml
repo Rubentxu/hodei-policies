@@ -52,6 +52,19 @@ services:
     depends_on:
       - postgres
 
+  redis:
+    image: redis:7-alpine
+    container_name: hodei_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   app:
     build:
       context: .
@@ -59,11 +72,14 @@ services:
     container_name: hodei_app
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/hodei_policies
+      REDIS_URL: redis://redis:6379
       RUST_LOG: info
     ports:
       - "3000:3000"
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     volumes:
       - ./cedar_schema.json:/app/cedar_schema.json:ro
@@ -71,3 +87,4 @@ services:
 volumes:
   postgres_data:
   pgadmin_data:
+  redis_data:
