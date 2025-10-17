@@ -89,7 +89,47 @@
       }
     },
     "actions": {
-      "Create": {
+      "Artifact::Create": {
+        "appliesTo": {
+          "principalTypes": [
+            "User"
+          ],
+          "resourceTypes": [
+            "Artifact"
+          ]
+        }
+      },
+      "Artifact::Delete": {
+        "appliesTo": {
+          "principalTypes": [
+            "User"
+          ],
+          "resourceTypes": [
+            "Artifact"
+          ]
+        }
+      },
+      "Artifact::Read": {
+        "appliesTo": {
+          "principalTypes": [
+            "User"
+          ],
+          "resourceTypes": [
+            "Artifact"
+          ]
+        }
+      },
+      "Artifact::Update": {
+        "appliesTo": {
+          "principalTypes": [
+            "User"
+          ],
+          "resourceTypes": [
+            "Artifact"
+          ]
+        }
+      },
+      "Document::Create": {
         "appliesTo": {
           "principalTypes": [
             "User"
@@ -99,7 +139,7 @@
           ]
         }
       },
-      "Delete": {
+      "Document::Delete": {
         "appliesTo": {
           "principalTypes": [
             "User"
@@ -109,7 +149,7 @@
           ]
         }
       },
-      "Read": {
+      "Document::Read": {
         "appliesTo": {
           "principalTypes": [
             "User"
@@ -119,7 +159,7 @@
           ]
         }
       },
-      "Update": {
+      "Document::Update": {
         "appliesTo": {
           "principalTypes": [
             "User"

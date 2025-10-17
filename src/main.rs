@@ -23,7 +23,11 @@ use crate::{
     auth::{AuthorizationService, PolicyAdapter, PostgresAdapter},
     mapper::HodeiMapperService,
 };
-use hodei_domain::{Document, DocumentCommand, DocumentCreatePayload, DocumentUpdatePayload, RequestContext, User};
+use hodei_domain::{
+    Document, DocumentCommand, DocumentCreatePayload, DocumentUpdatePayload,
+    Artifact, ArtifactCommand, ArtifactCreatePayload, ArtifactUpdatePayload,
+    RequestContext, User
+};
 use kernel::Hrn;
 
 struct AppState {
@@ -52,10 +56,17 @@ async fn main() {
 
     let app = Router::new()
         .route("/health", get(health_check))
+        // Document endpoints
         .route("/documents", post(create_document))
         .route("/documents/{resource_id}", get(read_document))
         .route("/documents/{resource_id}", put(update_document))
         .route("/documents/{resource_id}", delete(delete_document))
+        // Artifact endpoints
+        .route("/artifacts", post(create_artifact))
+        .route("/artifacts/{resource_id}", get(read_artifact))
+        .route("/artifacts/{resource_id}", put(update_artifact))
+        .route("/artifacts/{resource_id}", delete(delete_artifact))
+        // Policy management endpoints
         .route("/_api/policies", post(create_policy_handler))
         .route("/_api/policies", get(list_policies_handler))
         .route("/_api/policies/{id}", get(get_policy_handler))
@@ -278,6 +289,115 @@ async fn find_document(db: &PgPool, hrn: &Hrn) -> Result<Document, (StatusCode, 
         .fetch_optional(db).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?.ok_or((StatusCode::NOT_FOUND, "Document not found".into()))
 }
 
+async fn find_artifact(db: &PgPool, hrn: &Hrn) -> Result<Artifact, (StatusCode, String)> {
+    sqlx::query_as::<_, Artifact>("SELECT id, created_by, updated_by, document_id, name, artifact_type, version, is_active FROM artifacts WHERE id = $1")
+        .bind(hrn)
+        .fetch_optional(db).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?.ok_or((StatusCode::NOT_FOUND, "Artifact not found".into()))
+}
+
+// ============================================================================
+// Artifact Handlers
+// ============================================================================
+
+async fn create_artifact(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
+    Json(payload): Json<ArtifactCreatePayload>,
+) -> Result<Json<Artifact>, (StatusCode, String)> {
+    let context = get_context_from_token(auth.token());
+    let user = find_user(&state.db, auth.token()).await?;
+    let action = ArtifactCommand::Create(payload.clone());
+    let cedar_context = Some(serde_json::json!({ "ip_address": context.ip_address }));
+    let (request, entities) = HodeiMapperService::build_auth_package(&user, &action, None::<&Artifact>, &context, cedar_context).unwrap();
+    if state.auth_service.is_authorized(request, &entities).await == Decision::Deny {
+        return Err((StatusCode::FORBIDDEN, "Not authorized".into()));
+    }
+    let artifact_hrn = Hrn::builder().service("artifacts-api").tenant_id(&context.tenant_id).resource(&format!("artifact/{}", payload.resource_id)).unwrap().build().unwrap();
+    let created_artifact = sqlx::query_as::<_, Artifact>(
+        "INSERT INTO artifacts (id, created_by, updated_by, document_id, name, artifact_type, version, is_active) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, created_by, updated_by, document_id, name, artifact_type, version, is_active"
+    )
+        .bind(&artifact_hrn)
+        .bind(&user.id)
+        .bind(&user.id)
+        .bind(&payload.document_id)
+        .bind(&payload.name)
+        .bind(&payload.artifact_type)
+        .bind(&payload.version)
+        .bind(true)
+        .fetch_one(&state.db).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(created_artifact))
+}
+
+async fn read_artifact(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
+    Path(resource_id): Path<String>,
+) -> Result<Json<Artifact>, (StatusCode, String)> {
+    let context = get_context_from_token(auth.token());
+    let user = find_user(&state.db, auth.token()).await?;
+    let artifact_hrn = Hrn::builder().service("artifacts-api").tenant_id(&context.tenant_id).resource(&format!("artifact/{}", resource_id)).unwrap().build().unwrap();
+    let artifact = find_artifact(&state.db, &artifact_hrn).await?;
+    let action = ArtifactCommand::Read { id: artifact_hrn };
+    let cedar_context = Some(serde_json::json!({ "ip_address": context.ip_address }));
+    let (request, entities) = HodeiMapperService::build_auth_package(&user, &action, Some(&artifact), &context, cedar_context).unwrap();
+    if state.auth_service.is_authorized(request, &entities).await == Decision::Deny {
+        return Err((StatusCode::FORBIDDEN, "Not authorized".into()));
+    }
+    Ok(Json(artifact))
+}
+
+async fn update_artifact(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
+    Path(resource_id): Path<String>,
+    Json(payload): Json<ArtifactUpdatePayload>,
+) -> Result<Json<Artifact>, (StatusCode, String)> {
+    let context = get_context_from_token(auth.token());
+    let user = find_user(&state.db, auth.token()).await?;
+    let artifact_hrn = Hrn::builder().service("artifacts-api").tenant_id(&context.tenant_id).resource(&format!("artifact/{}", resource_id)).unwrap().build().unwrap();
+    let artifact = find_artifact(&state.db, &artifact_hrn).await?;
+    let action = ArtifactCommand::Update { id: artifact_hrn.clone(), payload: payload.clone() };
+    let cedar_context = Some(serde_json::json!({ "ip_address": context.ip_address }));
+    let (request, entities) = HodeiMapperService::build_auth_package(&user, &action, Some(&artifact), &context, cedar_context).unwrap();
+    if state.auth_service.is_authorized(request, &entities).await == Decision::Deny {
+        return Err((StatusCode::FORBIDDEN, "Not authorized".into()));
+    }
+    let new_name = payload.name.unwrap_or(artifact.name);
+    let new_version = payload.version.unwrap_or(artifact.version);
+    let new_is_active = payload.is_active.unwrap_or(artifact.is_active);
+    let updated_artifact = sqlx::query_as::<_, Artifact>(
+        "UPDATE artifacts SET name = $1, version = $2, is_active = $3, updated_by = $4 WHERE id = $5 RETURNING id, created_by, updated_by, document_id, name, artifact_type, version, is_active"
+    )
+        .bind(new_name)
+        .bind(new_version)
+        .bind(new_is_active)
+        .bind(&user.id)
+        .bind(&artifact_hrn)
+        .fetch_one(&state.db).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(updated_artifact))
+}
+
+async fn delete_artifact(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
+    Path(resource_id): Path<String>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let context = get_context_from_token(auth.token());
+    let user = find_user(&state.db, auth.token()).await?;
+    let artifact_hrn = Hrn::builder().service("artifacts-api").tenant_id(&context.tenant_id).resource(&format!("artifact/{}", resource_id)).unwrap().build().unwrap();
+    let artifact = find_artifact(&state.db, &artifact_hrn).await?;
+    let action = ArtifactCommand::Delete { id: artifact_hrn.clone() };
+    let cedar_context = Some(serde_json::json!({ "ip_address": context.ip_address }));
+    let (request, entities) = HodeiMapperService::build_auth_package(&user, &action, Some(&artifact), &context, cedar_context).unwrap();
+    if state.auth_service.is_authorized(request, &entities).await == Decision::Deny {
+        return Err((StatusCode::FORBIDDEN, "Not authorized".into()));
+    }
+    sqlx::query("DELETE FROM artifacts WHERE id = $1")
+        .bind(&artifact_hrn)
+        .execute(&state.db).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 async fn seed_database(db: &PgPool) {
     let alice_hrn = Hrn::builder().service("users-api").tenant_id("tenant-a").resource("user/alice").unwrap().build().unwrap();
     let bob_hrn = Hrn::builder().service("users-api").tenant_id("tenant-b").resource("user/bob").unwrap().build().unwrap();
@@ -298,20 +418,34 @@ async fn seed_database(db: &PgPool) {
     // Usamos UUIDs en la BD para gestión
     let p_tenant = r#"forbid(principal, action, resource) unless { principal.tenant_id == resource.tenant_id };"#;
     
-    // Política de owner: el owner_id del recurso debe ser igual al HRN del principal
+    // Política de owner para Documents: el owner_id del recurso debe ser igual al HRN del principal
     let p_owner = r#"permit(principal, action, resource) when { 
         resource has owner_id && 
         resource.owner_id == principal 
     };"#;
     
-    let p_admin_create = r#"permit(principal, action == Action::"Create", resource) when { principal.role == "admin" };"#;
+    // Política para admins: pueden crear Documents
+    let p_admin_create_doc = r#"permit(principal, action == Action::"Document::Create", resource) when { principal.role == "admin" };"#;
+    
+    // Política para admins: pueden crear Artifacts
+    let p_admin_create_artifact = r#"permit(principal, action == Action::"Artifact::Create", resource) when { principal.role == "admin" };"#;
+    
+    // Política para Artifacts: el creador tiene permisos completos
+    let p_artifact_creator = r#"permit(principal, action, resource) when {
+        resource has created_by &&
+        resource.created_by == principal
+    };"#;
 
     sqlx::query("INSERT INTO policies (id, content) VALUES ('tenant_isolation', $1) ON CONFLICT (id) DO UPDATE SET content = $1")
         .bind(p_tenant).execute(db).await.ok();
     sqlx::query("INSERT INTO policies (id, content) VALUES ('owner_permissions', $1) ON CONFLICT (id) DO UPDATE SET content = $1")
         .bind(p_owner).execute(db).await.ok();
-    sqlx::query("INSERT INTO policies (id, content) VALUES ('admin_creation', $1) ON CONFLICT (id) DO UPDATE SET content = $1")
-        .bind(p_admin_create).execute(db).await.ok();
+    sqlx::query("INSERT INTO policies (id, content) VALUES ('admin_create_document', $1) ON CONFLICT (id) DO UPDATE SET content = $1")
+        .bind(p_admin_create_doc).execute(db).await.ok();
+    sqlx::query("INSERT INTO policies (id, content) VALUES ('admin_create_artifact', $1) ON CONFLICT (id) DO UPDATE SET content = $1")
+        .bind(p_admin_create_artifact).execute(db).await.ok();
+    sqlx::query("INSERT INTO policies (id, content) VALUES ('artifact_creator_permissions', $1) ON CONFLICT (id) DO UPDATE SET content = $1")
+        .bind(p_artifact_creator).execute(db).await.ok();
     
     tracing::info!("✅ DB seeded with HRNs and multi-tenant policies.");
 }

@@ -22,10 +22,29 @@ fn main() {
         entity_types.insert(type_name.to_string(), fragment_value);
     }
 
-    let mut actions = BTreeMap::new();
+    let mut actions: BTreeMap<String, Value> = BTreeMap::new();
     for fragment in inventory::iter::<hodei_provider::ActionSchemaFragment>() {
         let fragment_value: Value = serde_json::from_str(fragment.fragment_json).unwrap();
-        actions.insert(fragment.name.to_string(), fragment_value);
+        let action_name = fragment.name.to_string();
+        
+        // Si la acción ya existe, combinar resourceTypes
+        if let Some(existing) = actions.get_mut(&action_name) {
+            if let (Some(existing_resources), Some(new_resources)) = (
+                existing.get_mut("appliesTo").and_then(|a| a.get_mut("resourceTypes")),
+                fragment_value.get("appliesTo").and_then(|a| a.get("resourceTypes"))
+            ) {
+                if let (Some(existing_arr), Some(new_arr)) = (existing_resources.as_array_mut(), new_resources.as_array()) {
+                    // Agregar nuevos resourceTypes sin duplicar
+                    for resource in new_arr {
+                        if !existing_arr.contains(resource) {
+                            existing_arr.push(resource.clone());
+                        }
+                    }
+                }
+            }
+        } else {
+            actions.insert(action_name, fragment_value);
+        }
     }
 
     let full_schema = json!({

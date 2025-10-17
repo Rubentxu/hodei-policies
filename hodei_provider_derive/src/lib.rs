@@ -191,7 +191,6 @@ pub fn hodei_action_derive(input: TokenStream) -> TokenStream {
     for variant in &data_enum.variants {
         let variant_name = &variant.ident;
         let action_name_str = variant_name.to_string();
-        let action_euid_str = format!("Action::\"{}\"", action_name_str);
         let mut principal_types: Vec<String> = Vec::new();
         let mut resource_types: Vec<String> = Vec::new();
         let mut is_create_action = false;
@@ -215,6 +214,12 @@ pub fn hodei_action_derive(input: TokenStream) -> TokenStream {
             }
         }
 
+        // Generar nombre de acción con formato ResourceType::ActionName
+        // Ej: "Document::Create", "Artifact::Read"
+        let resource_type = resource_types.first().expect("Action must have at least one resource type");
+        let full_action_name = format!("{}::{}", resource_type, action_name_str);
+        let action_euid_str = format!("Action::\"{}\"", full_action_name);
+
         let action_schema_json = serde_json::json!({ 
             "appliesTo": { 
                 "principalTypes": principal_types, 
@@ -227,7 +232,7 @@ pub fn hodei_action_derive(input: TokenStream) -> TokenStream {
             #[cfg(feature = "schema-discovery")]
             hodei_provider::inventory::submit! { 
                 hodei_provider::ActionSchemaFragment { 
-                    name: #action_name_str, 
+                    name: #full_action_name, 
                     fragment_json: #action_schema_str 
                 } 
             }

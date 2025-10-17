@@ -69,7 +69,7 @@ impl DocumentCreatePayload {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DocumentUpdatePayload {
-    pub is_public: bool,
+    pub is_public: Option<bool>,
 }
 
 // ============================================================================
@@ -89,7 +89,7 @@ pub struct Artifact {
     #[entity_type = "HodeiMVP::User"]
     pub updated_by: Hrn,
     
-    /// Documento asociado (si aplica)
+    /// Documento asociado - TODO: hacer opcional cuando el macro soporte Option<Hrn>
     #[entity_type = "HodeiMVP::Document"]
     pub document_id: Hrn,
     
@@ -159,6 +159,34 @@ impl ArtifactCreatePayload {
         Entity::new(euid, attrs, std::collections::HashSet::new()).unwrap()
     }
 }
+
+// ============================================================================
+// Comandos para Artifact
+// ============================================================================
+
+#[derive(Debug, Clone, HodeiAction)]
+#[hodei(namespace = "HodeiMVP")]
+pub enum ArtifactCommand {
+    #[hodei(principal = "User", resource = "Artifact", creates_resource)]
+    Create(ArtifactCreatePayload),
+    #[hodei(principal = "User", resource = "Artifact")]
+    Read { id: Hrn },
+    #[hodei(principal = "User", resource = "Artifact")]
+    Update { id: Hrn, payload: ArtifactUpdatePayload },
+    #[hodei(principal = "User", resource = "Artifact")]
+    Delete { id: Hrn },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArtifactUpdatePayload {
+    pub name: Option<String>,
+    pub version: Option<String>,
+    pub is_active: Option<bool>,
+}
+
+// ============================================================================
+// Comandos para Document
+// ============================================================================
 
 #[derive(Debug, Clone, HodeiAction)]
 #[hodei(namespace = "HodeiMVP")]
