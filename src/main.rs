@@ -297,7 +297,13 @@ async fn seed_database(db: &PgPool) {
     // Los IDs internos de Cedar (policy0, policy1) no importan
     // Usamos UUIDs en la BD para gestión
     let p_tenant = r#"forbid(principal, action, resource) unless { principal.tenant_id == resource.tenant_id };"#;
-    let p_owner = r#"permit(principal, action, resource) when { resource.owner_id == principal.id };"#;
+    
+    // Política de owner: el owner_id del recurso debe ser igual al HRN del principal
+    let p_owner = r#"permit(principal, action, resource) when { 
+        resource has owner_id && 
+        resource.owner_id == principal 
+    };"#;
+    
     let p_admin_create = r#"permit(principal, action == Action::"Create", resource) when { principal.role == "admin" };"#;
 
     sqlx::query("INSERT INTO policies (id, content) VALUES ('tenant_isolation', $1) ON CONFLICT (id) DO UPDATE SET content = $1")

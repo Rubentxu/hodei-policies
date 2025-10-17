@@ -7,7 +7,8 @@
           "type": "Record",
           "attributes": {
             "owner_id": {
-              "type": "String",
+              "type": "Entity",
+              "name": "HodeiMVP::User",
               "required": true
             },
             "is_public": {

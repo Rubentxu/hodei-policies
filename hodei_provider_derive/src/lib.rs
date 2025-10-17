@@ -37,17 +37,38 @@ pub fn hodei_entity_derive(input: TokenStream) -> TokenStream {
                     _ => "Complex".to_string(),
                 };
                 
-                let cedar_type = match type_ident.as_str() {
-                    "String" => "String",
-                    "i64" | "u64" | "i32" | "u32" | "usize" => "Long",
-                    "bool" => "Boolean",
-                    _ => "String",
+                // Determinar el tipo Cedar basado en el tipo Rust
+                let schema_type = if type_ident == "Hrn" {
+                    // Hrn se convierte a Entity en Cedar
+                    // Asumimos que es un User por defecto, pero esto podría ser más específico
+                    serde_json::json!({
+                        "type": "Entity",
+                        "name": "HodeiMVP::User",
+                        "required": true
+                    })
+                } else {
+                    let cedar_type = match type_ident.as_str() {
+                        "String" => "String",
+                        "i64" | "u64" | "i32" | "u32" | "usize" => "Long",
+                        "bool" => "Boolean",
+                        _ => "String",
+                    };
+                    serde_json::json!({ "type": cedar_type, "required": true })
                 };
                 
-                attributes.insert(field_name.clone(), serde_json::json!({ "type": cedar_type, "required": true }));
+                attributes.insert(field_name.clone(), schema_type);
                 
                 let value_expr = if type_ident == "Hrn" {
-                    quote! { cedar_policy::RestrictedExpression::new_string(self.#field_ident.to_string()) }
+                    // Convertir Hrn a EntityUid en Cedar
+                    quote! { 
+                        {
+                            let euid = cedar_policy::EntityUid::from_type_name_and_id(
+                                "HodeiMVP::User".parse().unwrap(),
+                                self.#field_ident.to_string().parse().unwrap(),
+                            );
+                            cedar_policy::RestrictedExpression::new_entity_uid(euid)
+                        }
+                    }
                 } else if type_ident == "String" {
                     quote! { cedar_policy::RestrictedExpression::new_string(self.#field_ident.clone()) }
                 } else if type_ident == "bool" {
