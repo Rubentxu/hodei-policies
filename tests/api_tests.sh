@@ -49,7 +49,7 @@ echo "════════════════════════�
 echo "📋 REQUISITO: REQ-HRN-04 - Hidratación de HRN en Backend"
 echo "═══════════════════════════════════════════════════════════════"
 
-run_test "Alice (admin, tenant-a) crea documento doc-test1" 200 \
+run_test "Alice (admin, tenant-a) crea documento doc-test1" 201 \
     -X POST "$API_URL/documents" \
     -H "Authorization: Bearer alice" \
     -H "Content-Type: application/json" \
@@ -73,7 +73,7 @@ echo "════════════════════════�
 echo "📋 REQUISITO: REQ-SVC-05 - Flujo de Autorización Multi-Tenant"
 echo "═══════════════════════════════════════════════════════════════"
 
-run_test "Bob (user, tenant-b) crea documento doc-test2" 200 \
+run_test "Bob (user, tenant-b) crea documento doc-test2" 201 \
     -X POST "$API_URL/documents" \
     -H "Authorization: Bearer bob" \
     -H "Content-Type: application/json" \
@@ -129,7 +129,7 @@ echo "════════════════════════�
 # Crear una política temporal que permita lectura pública
 PUBLIC_READ_POLICY='permit(principal, action == Action::"Read", resource) when { resource.is_public == true };'
 
-run_test "Agregar política de lectura pública" 200 \
+run_test "Agregar política de lectura pública" 201 \
     -X POST "$API_URL/_api/policies" \
     -H "Content-Type: text/plain" \
     -d "$PUBLIC_READ_POLICY"
@@ -139,7 +139,7 @@ echo "════════════════════════�
 echo "📋 REQUISITO: REQ-DM-01 - Recursos Virtuales (Creación)"
 echo "═══════════════════════════════════════════════════════════════"
 
-run_test "Alice crea documento público doc-test3" 200 \
+run_test "Alice crea documento público doc-test3" 201 \
     -X POST "$API_URL/documents" \
     -H "Authorization: Bearer alice" \
     -H "Content-Type: application/json" \

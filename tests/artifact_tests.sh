@@ -65,7 +65,7 @@ ARTIFACT_PAYLOAD=$(jq -n \
     --argjson doc "$DOC_HRN_JSON" \
     '{resource_id: $rid, name: $name, artifact_type: $type, version: $ver, document_id: $doc}')
 
-run_test "Alice (admin) crea artifact-1" 200 \
+run_test "Alice (admin) crea artifact-1" 201 \
     -X POST "$API_URL/artifacts" \
     -H "Authorization: Bearer alice" \
     -H "Content-Type: application/json" \
@@ -120,7 +120,7 @@ ARTIFACT2_PAYLOAD=$(jq -n \
     --argjson doc "$DOC_HRN_JSON" \
     '{resource_id: $rid, name: $name, artifact_type: $type, version: $ver, document_id: $doc}')
 
-run_test "Alice crea artifact-2 para eliminar" 200 \
+run_test "Alice crea artifact-2 para eliminar" 201 \
     -X POST "$API_URL/artifacts" \
     -H "Authorization: Bearer alice" \
     -H "Content-Type: application/json" \

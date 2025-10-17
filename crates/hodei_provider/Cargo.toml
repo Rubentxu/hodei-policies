@@ -1,0 +1,19 @@
+[package]
+name = "hodei-provider"
+version = "0.1.0"
+edition = "2024"
+authors = ["Ruben Dario Cabrera Garcia <rubentxu74@gmail.com>"]
+description = "Core traits and types for Hodei authorization system with Cedar Policy"
+license = "MIT"
+repository = "https://github.com/Rubentxu/hodei-policies"
+homepage = "https://github.com/Rubentxu/hodei-policies"
+documentation = "https://docs.rs/hodei-provider"
+keywords = ["authorization", "cedar", "policy", "provider"]
+categories = ["authentication", "web-programming"]
+readme = "../README.md"
+
+[dependencies]
+hodei-kernel = { path = "../kernel", workspace = true }
+hodei-provider-derive = { path = "../hodei_provider_derive", workspace = true }
+cedar-policy = { workspace = true }
+inventory = { workspace = true }

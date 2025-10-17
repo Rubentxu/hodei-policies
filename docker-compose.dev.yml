@@ -54,6 +54,19 @@ services:
     depends_on:
       - postgres
 
+  # Redis - Para cache invalidation
+  redis:
+    image: redis:7-alpine
+    container_name: hodei_redis_dev
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
 volumes:
   postgres_dev_data:
   pgadmin_dev_data:

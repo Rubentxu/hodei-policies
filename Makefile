@@ -20,21 +20,21 @@ clean: ## Limpiar archivos de compilación
 
 docker-up: ## Levantar servicios con Docker Compose
 	@echo "🐳 Levantando servicios..."
-	docker-compose up -d
+	docker compose up -d
 	@echo "⏳ Esperando a que los servicios estén listos..."
 	@sleep 5
 	@echo "✅ Servicios listos!"
 
 docker-down: ## Detener servicios Docker
-	docker-compose down
+	docker compose down
 
 docker-logs: ## Ver logs de los servicios
-	docker-compose logs -f
+	docker compose logs -f
 
 docker-rebuild: ## Reconstruir y levantar servicios
-	docker-compose down
-	docker-compose build --no-cache
-	docker-compose up -d
+	docker compose down
+	docker compose build --no-cache
+	docker compose up -d
 
 migrate: ## Ejecutar migraciones de base de datos
 	@echo "📦 Instalando sqlx-cli si no está instalado..."
@@ -54,7 +54,7 @@ dev: migrate ## Configurar entorno de desarrollo
 
 dev-up: ## Levantar solo BD para desarrollo (sin app container)
 	@echo "🐳 Levantando PostgreSQL + herramientas de BD..."
-	docker-compose -f docker-compose.dev.yml up -d
+	docker compose -f docker-compose.dev.yml up -d
 	@echo "⏳ Esperando a que PostgreSQL esté listo..."
 	@sleep 5
 	@echo "✅ Servicios listos!"
@@ -68,16 +68,16 @@ dev-up: ## Levantar solo BD para desarrollo (sin app container)
 	@echo "   cargo run"
 
 dev-down: ## Detener servicios de desarrollo
-	docker-compose -f docker-compose.dev.yml down
+	docker compose -f docker-compose.dev.yml down
 
 dev-logs: ## Ver logs de PostgreSQL en desarrollo
-	docker-compose -f docker-compose.dev.yml logs -f postgres
+	docker compose -f docker-compose.dev.yml logs -f postgres
 
 dev-restart: ## Reiniciar servicios de desarrollo
-	docker-compose -f docker-compose.dev.yml restart
+	docker compose -f docker-compose.dev.yml restart
 
 dev-clean: ## Limpiar datos de desarrollo (¡CUIDADO! Borra la BD)
-	docker-compose -f docker-compose.dev.yml down -v
+	docker compose -f docker-compose.dev.yml down -v
 	@echo "⚠️  Datos de desarrollo eliminados"
 
 docker-test: docker-up ## Ejecutar tests contra Docker
@@ -87,24 +87,24 @@ docker-test: docker-up ## Ejecutar tests contra Docker
 	@API_URL=http://localhost:3000 ./tests/api_tests.sh
 	@echo ""
 	@echo "🛑 Deteniendo servicios..."
-	@docker-compose down
+	@docker compose down
 
 all: build docker-up docker-test ## Compilar, levantar y probar todo
 
 status: ## Ver estado de los servicios
-	@docker-compose ps
+	@docker compose ps
 
 logs-app: ## Ver logs de la aplicación
-	@docker-compose logs -f app
+	@docker compose logs -f app
 
 logs-db: ## Ver logs de PostgreSQL
-	@docker-compose logs -f postgres
+	@docker compose logs -f postgres
 
 shell-app: ## Abrir shell en el contenedor de la aplicación
-	@docker-compose exec app /bin/bash
+	@docker compose exec app /bin/bash
 
 shell-db: ## Abrir psql en PostgreSQL
-	@docker-compose exec postgres psql -U postgres -d hodei_policies
+	@docker compose exec postgres psql -U postgres -d hodei_policies
 
 adminer: ## Abrir Adminer en el navegador
 	@echo "🌐 Abriendo Adminer en http://localhost:8080"
@@ -123,7 +123,7 @@ pgadmin: ## Abrir pgAdmin en el navegador
 
 backup-db: ## Crear backup de la base de datos
 	@echo "💾 Creando backup..."
-	@docker-compose exec postgres pg_dump -U postgres hodei_policies > backup_$(shell date +%Y%m%d_%H%M%S).sql
+	@docker compose exec postgres pg_dump -U postgres hodei_policies > backup_$(shell date +%Y%m%d_%H%M%S).sql
 	@echo "✅ Backup creado: backup_$(shell date +%Y%m%d_%H%M%S).sql"
 
 restore-db: ## Restaurar backup (uso: make restore-db FILE=backup.sql)
@@ -132,7 +132,7 @@ restore-db: ## Restaurar backup (uso: make restore-db FILE=backup.sql)
 		exit 1; \
 	fi
 	@echo "📥 Restaurando backup desde $(FILE)..."
-	@docker-compose exec -T postgres psql -U postgres hodei_policies < $(FILE)
+	@docker compose exec -T postgres psql -U postgres hodei_policies < $(FILE)
 	@echo "✅ Backup restaurado!"
 
 check: ## Verificar código sin compilar

@@ -1,0 +1,1241 @@
+================================================================
+Directory Structure
+================================================================
+hodei_domain/
+  src/
+    lib.rs
+hodei_provider/
+  src/
+    lib.rs
+hodei_provider_derive/
+  src/
+    lib.rs
+kernel/
+  src/
+    lib.rs
+  Cargo.toml
+src/
+  auth.rs
+  main.rs
+  mapper.rs
+
+================================================================
+Files
+================================================================
+
+================
+File: kernel/src/lib.rs
+================
+use serde::{Deserialize, Serialize};
+use std::fmt;
+use std::str::FromStr;
+#[derive(Debug, thiserror::Error)]
+pub enum HrnError {
+    #[error("Formato de HRN inválido: Se esperaban 6 partes separadas por ':'")]
+    InvalidFormat,
+    #[error("Prefijo de HRN inválido: debe empezar con 'hrn:'")]
+    InvalidPrefix,
+    #[error("Parte del recurso inválida: debe tener el formato 'tipo/id'")]
+    InvalidResourcePart,
+    #[error("Parte requerida del HRN no especificada: {0}")]
+    MissingPart(String),
+}
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Hrn {
+    pub partition: String,
+    pub service: String,
+    pub region: String,
+    pub tenant_id: String,
+    pub resource_type: String,
+    pub resource_id: String,
+}
+#[derive(Default)]
+pub struct HrnBuilder {
+    partition: Option<String>,
+    service: Option<String>,
+    region: Option<String>,
+    tenant_id: Option<String>,
+    resource_type: Option<String>,
+    resource_id: Option<String>,
+}
+impl HrnBuilder {
+    pub fn new() -> Self {
+        Self {
+            partition: Some("hodei".to_string()),
+            region: Some("global".to_string()),
+            ..Default::default()
+        }
+    }
+    pub fn service(mut self, service: &str) -> Self {
+        self.service = Some(service.to_string());
+        self
+    }
+    pub fn tenant_id(mut self, tenant_id: &str) -> Self {
+        self.tenant_id = Some(tenant_id.to_string());
+        self
+    }
+    pub fn resource(mut self, resource_path: &str) -> Result<Self, HrnError> {
+        if let Some((res_type, res_id)) = resource_path.split_once('/') {
+            self.resource_type = Some(res_type.to_string());
+            self.resource_id = Some(res_id.to_string());
+            Ok(self)
+        } else {
+            Err(HrnError::InvalidResourcePart)
+        }
+    }
+    pub fn build(self) -> Result<Hrn, HrnError> {
+        Ok(Hrn {
+            partition: self.partition.ok_or_else(|| HrnError::MissingPart("partition".into()))?,
+            service: self.service.ok_or_else(|| HrnError::MissingPart("service".into()))?,
+            region: self.region.ok_or_else(|| HrnError::MissingPart("region".into()))?,
+            tenant_id: self.tenant_id.ok_or_else(|| HrnError::MissingPart("tenant_id".into()))?,
+            resource_type: self.resource_type.ok_or_else(|| HrnError::MissingPart("resource_type".into()))?,
+            resource_id: self.resource_id.ok_or_else(|| HrnError::MissingPart("resource_id".into()))?,
+        })
+    }
+}
+impl Hrn {
+    pub fn builder() -> HrnBuilder {
+        HrnBuilder::new()
+    }
+}
+impl fmt::Display for Hrn {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "hrn:{}:{}:{}:{}:{}/{}",
+            self.partition, self.service, self.region, self.tenant_id, self.resource_type, self.resource_id
+        )
+    }
+}
+impl FromStr for Hrn {
+    type Err = HrnError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if !s.starts_with("hrn:") { return Err(HrnError::InvalidPrefix); }
+        let parts: Vec<&str> = s[4..].split(':').collect();
+        if parts.len() != 5 { return Err(HrnError::InvalidFormat); }
+        let resource_parts: Vec<&str> = parts[4].split('/').collect();
+        if resource_parts.len() != 2 { return Err(HrnError::InvalidResourcePart); }
+        Ok(Hrn {
+            partition: parts[0].to_string(),
+            service: parts[1].to_string(),
+            region: parts[2].to_string(),
+            tenant_id: parts[3].to_string(),
+            resource_type: resource_parts[0].to_string(),
+            resource_id: resource_parts[1].to_string(),
+        })
+    }
+}
+#[cfg(feature = "sqlx")]
+impl sqlx::Type<sqlx::Postgres> for Hrn {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        sqlx::postgres::PgTypeInfo::with_name("TEXT")
+    }
+}
+#[cfg(feature = "sqlx")]
+impl<'q> sqlx::Encode<'q, sqlx::Postgres> for Hrn {
+    fn encode_by_ref(&self, buf: &mut sqlx::postgres::PgArgumentBuffer) -> Result<sqlx::encode::IsNull, Box<dyn std::error::Error + Send + Sync>> {
+        let hrn_string = self.to_string();
+        <String as sqlx::Encode<sqlx::Postgres>>::encode(hrn_string, buf)
+    }
+}
+#[cfg(feature = "sqlx")]
+impl<'r> sqlx::Decode<'r, sqlx::Postgres> for Hrn {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, Box<dyn std::error::Error + 'static + Send + Sync>> {
+        let str_value = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
+        Ok(str_value.parse()?)
+    }
+}
+
+================
+File: src/mapper.rs
+================
+use cedar_policy::{Context, Request, Entities};
+use serde_json::Value as JsonValue;
+use thiserror::Error;
+use crate::hodei_provider::{RuntimeHodeiActionMapper, RuntimeHodeiEntityMapper};
+#[derive(Debug, Error)]
+pub enum MapperError {
+    #[error("Error de request Cedar: {0}")] Request(String),
+    #[error("Recurso requerido pero no encontrado")] ResourceNotFound,
+    #[error("La acciรณn indica un payload de recurso, pero no se pudo generar")] VirtualResourceError,
+    #[error("Error al construir contexto Cedar: {0}")] ContextError(String),
+}
+pub struct HodeiMapperService;
+impl HodeiMapperService {
+    pub fn build_auth_package<P, A, R, C>(
+        principal: &P,
+        action: &A,
+        resource_from_db: Option<&R>,
+        request_context: &C,
+        cedar_context_data: Option<JsonValue>,
+    ) -> Result<(Request, Entities), MapperError>
+    where
+        P: RuntimeHodeiEntityMapper + Clone,
+        A: RuntimeHodeiActionMapper,
+        R: RuntimeHodeiEntityMapper + Clone,
+        C: std::any::Any,
+    {
+        let principal_entity = principal.to_cedar_entity();
+        let (resource_euid, entities_vec) =
+            if let Some(virtual_resource) = action.get_payload_as_virtual_entity(request_context) {
+                let euid = virtual_resource.uid().clone();
+                (euid, vec![principal_entity, virtual_resource])
+            } else {
+                let resource = resource_from_db.ok_or(MapperError::ResourceNotFound)?;
+                let resource_entity = resource.to_cedar_entity();
+                (resource.to_cedar_euid(), vec![principal_entity, resource_entity])
+            };
+        let entities = Entities::from_entities(entities_vec, None)
+            .map_err(|e| MapperError::Request(format!("Error al crear entidades: {}", e)))?;
+        let context_json = cedar_context_data.unwrap_or_else(|| serde_json::json!({}));
+        let cedar_context = Context::from_json_value(context_json, None)
+            .map_err(|e| MapperError::ContextError(e.to_string()))?;
+        let request = Request::new(
+            principal.to_cedar_euid(),
+            action.to_cedar_action_euid(),
+            resource_euid,
+            cedar_context,
+            None,
+        ).map_err(|e| MapperError::Request(e.to_string()))?;
+        Ok((request, entities))
+    }
+    pub fn build_auth_package_simple<P, A, R, C>(
+        principal: &P,
+        action: &A,
+        resource_from_db: Option<&R>,
+        request_context: &C,
+    ) -> Result<(Request, Entities), MapperError>
+    where
+        P: RuntimeHodeiEntityMapper + Clone,
+        A: RuntimeHodeiActionMapper,
+        R: RuntimeHodeiEntityMapper + Clone,
+        C: std::any::Any,
+    {
+        Self::build_auth_package(principal, action, resource_from_db, request_context, None)
+    }
+}
+
+================
+File: hodei_provider/src/lib.rs
+================
+use cedar_policy::{Entity, EntityUid, RestrictedExpression};
+use hodei_kernel::Hrn;
+pub use hodei_kernel;
+pub use hodei_provider_derive::{HodeiAction, HodeiEntity};
+pub use inventory;
+pub struct EntitySchemaFragment {
+    pub entity_type: &'static str,
+    pub fragment_json: &'static str,
+}
+pub struct ActionSchemaFragment {
+    pub name: &'static str,
+    pub fragment_json: &'static str,
+}
+inventory::collect!(EntitySchemaFragment);
+inventory::collect!(ActionSchemaFragment);
+pub trait RuntimeHodeiEntityMapper {
+    fn hodei_type_name(&self) -> &'static str;
+    fn hodei_id(&self) -> String;
+    fn hodei_hrn(&self) -> &Hrn;
+    fn to_cedar_euid(&self) -> EntityUid {
+        EntityUid::from_type_name_and_id(
+            self.hodei_type_name().parse().unwrap(),
+            self.hodei_hrn().to_string().parse().unwrap(),
+        )
+    }
+    fn to_cedar_entity(&self) -> Entity;
+}
+pub trait RuntimeHodeiActionMapper {
+    fn to_cedar_action_euid(&self) -> EntityUid;
+    fn creates_resource_from_payload(&self) -> bool;
+    fn get_payload_as_virtual_entity(&self, context: &dyn std::any::Any) -> Option<Entity>;
+}
+
+================
+File: kernel/Cargo.toml
+================
+[package]
+name = "hodei-kernel"
+version = "0.1.0"
+edition = "2024"
+authors = ["Ruben Dario Cabrera Garcia <rubentxu74@gmail.com>"]
+description = "Core types and traits for Hodei authorization system with Cedar Policy"
+license = "MIT"
+repository = "https://github.com/Rubentxu/hodei-policies"
+homepage = "https://github.com/Rubentxu/hodei-policies"
+documentation = "https://docs.rs/hodei-kernel"
+keywords = ["authorization", "cedar", "policy", "security", "multi-tenant"]
+categories = ["authentication", "web-programming"]
+readme = "../README.md"
+
+[dependencies]
+serde = { version = "1.0.203", features = ["derive"] }
+thiserror = "2.0.12"
+sqlx = { version = "0.8.6", optional = true, features = ["postgres"] }
+
+================
+File: src/auth.rs
+================
+use cedar_policy::{Authorizer, Decision, Entities, Policy, PolicyId, PolicySet, Request, Schema};
+use std::sync::Arc;
+use tokio::sync::RwLock;
+use thiserror::Error;
+use async_trait::async_trait;
+use sqlx::{PgPool, Row};
+#[derive(Debug, Error)]
+pub enum AuthServiceError {
+    #[error("DB Error: {0}")] Db(#[from] sqlx::Error),
+    #[error("I/O Error: {0}")] Io(#[from] std::io::Error),
+    #[error("Schema Error: {0}")] Schema(#[from] cedar_policy::SchemaError),
+    #[error("Policy Parse Error: {0}")] PolicyParse(cedar_policy::ParseErrors),
+    #[error("Policy Add Error: {0}")] PolicyAdd(#[from] cedar_policy::PolicySetError),
+    #[error("Policy ID not found for removal")] PolicyIdNotFound,
+}
+#[async_trait]
+pub trait PolicyAdapter: Send + Sync {
+    async fn load_policies(&self) -> Result<PolicySet, AuthServiceError>;
+    async fn create_policy(&self, content: String) -> Result<String, AuthServiceError>;
+    async fn update_policy(&self, id: String, content: String) -> Result<(), AuthServiceError>;
+    async fn delete_policy(&self, id: String) -> Result<(), AuthServiceError>;
+    async fn get_policy(&self, id: String) -> Result<Option<String>, AuthServiceError>;
+    async fn list_policies(&self) -> Result<Vec<(String, String)>, AuthServiceError>;
+}
+pub struct PostgresAdapter {
+    db: PgPool,
+}
+impl PostgresAdapter {
+    pub fn new(db: PgPool) -> Self {
+        Self { db }
+    }
+}
+#[async_trait]
+impl PolicyAdapter for PostgresAdapter {
+    async fn load_policies(&self) -> Result<PolicySet, AuthServiceError> {
+        let records = sqlx::query("SELECT id, content FROM policies")
+            .fetch_all(&self.db)
+            .await?;
+        let policy_count = records.len();
+        let mut policies = Vec::new();
+        for record in records {
+            let db_id: String = record.try_get("id")?;
+            let content: String = record.try_get("content")?;
+            let policy_id = cedar_policy::PolicyId::new(&db_id);
+            let p = Policy::parse(Some(policy_id), &content)
+                .map_err(|e| AuthServiceError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())))?;
+            policies.push(p);
+        }
+        let policy_set = PolicySet::from_policies(policies)
+            .map_err(AuthServiceError::PolicyAdd)?;
+        tracing::info!("✅ Loaded {} policies successfully", policy_count);
+        Ok(policy_set)
+    }
+    async fn create_policy(&self, content: String) -> Result<String, AuthServiceError> {
+        let policy_id = uuid::Uuid::new_v4().to_string();
+        sqlx::query(
+            "INSERT INTO policies (id, content) VALUES ($1, $2)"
+        )
+        .bind(&policy_id)
+        .bind(&content)
+        .execute(&self.db)
+        .await?;
+        Ok(policy_id)
+    }
+    async fn update_policy(&self, id: String, content: String) -> Result<(), AuthServiceError> {
+        let result = sqlx::query(
+            "UPDATE policies SET content = $1 WHERE id = $2"
+        )
+        .bind(&content)
+        .bind(&id)
+        .execute(&self.db)
+        .await?;
+        if result.rows_affected() == 0 {
+            return Err(AuthServiceError::PolicyIdNotFound);
+        }
+        Ok(())
+    }
+    async fn delete_policy(&self, id: String) -> Result<(), AuthServiceError> {
+        let result = sqlx::query("DELETE FROM policies WHERE id = $1")
+            .bind(&id)
+            .execute(&self.db)
+            .await?;
+        if result.rows_affected() == 0 {
+            return Err(AuthServiceError::PolicyIdNotFound);
+        }
+        Ok(())
+    }
+    async fn get_policy(&self, id: String) -> Result<Option<String>, AuthServiceError> {
+        let record = sqlx::query("SELECT content FROM policies WHERE id = $1")
+            .bind(&id)
+            .fetch_optional(&self.db)
+            .await?;
+        Ok(record.map(|r| r.try_get("content").unwrap()))
+    }
+    async fn list_policies(&self) -> Result<Vec<(String, String)>, AuthServiceError> {
+        let records = sqlx::query("SELECT id, content FROM policies")
+            .fetch_all(&self.db)
+            .await?;
+        let mut policies = Vec::new();
+        for record in records {
+            let id: String = record.try_get("id")?;
+            let content: String = record.try_get("content")?;
+            policies.push((id, content));
+        }
+        Ok(policies)
+    }
+}
+pub struct AuthorizationService {
+    authorizer: Authorizer,
+    schema: Arc<Schema>,
+    policies: Arc<RwLock<PolicySet>>,
+    adapter: Arc<dyn PolicyAdapter>,
+}
+impl AuthorizationService {
+    pub async fn new(adapter: Arc<dyn PolicyAdapter>) -> Result<Self, AuthServiceError> {
+        let schema_str = tokio::fs::read_to_string("cedar_schema.json").await?;
+        let schema = Arc::new(Schema::from_json_str(&schema_str).map_err(|e| AuthServiceError::Schema(e))?);
+        let policy_set = adapter.load_policies().await?;
+        Ok(Self {
+            authorizer: Authorizer::new(),
+            schema,
+            policies: Arc::new(RwLock::new(policy_set)),
+            adapter,
+        })
+    }
+    pub async fn is_authorized(&self, request: Request, entities: &Entities) -> Decision {
+        let policies = self.policies.read().await;
+        let response = self.authorizer.is_authorized(&request, &policies, entities);
+        response.decision()
+    }
+    pub async fn create_policy(&self, content: String) -> Result<String, AuthServiceError> {
+        let policy_id = self.adapter.create_policy(content).await?;
+        self.reload_policies().await?;
+        Ok(policy_id)
+    }
+    pub async fn update_policy(&self, id: String, content: String) -> Result<(), AuthServiceError> {
+        self.adapter.update_policy(id, content).await?;
+        self.reload_policies().await?;
+        Ok(())
+    }
+    pub async fn delete_policy(&self, id: String) -> Result<(), AuthServiceError> {
+        self.adapter.delete_policy(id).await?;
+        self.reload_policies().await?;
+        Ok(())
+    }
+    pub async fn get_policy(&self, id: String) -> Result<Option<String>, AuthServiceError> {
+        self.adapter.get_policy(id).await
+    }
+    pub async fn list_policies(&self) -> Result<Vec<(String, String)>, AuthServiceError> {
+        self.adapter.list_policies().await
+    }
+    async fn reload_policies(&self) -> Result<(), AuthServiceError> {
+        let new_policies = self.adapter.load_policies().await?;
+        let mut policies = self.policies.write().await;
+        *policies = new_policies;
+        Ok(())
+    }
+}
+
+================
+File: src/main.rs
+================
+mod auth;
+mod mapper;
+pub use hodei_provider;
+pub use hodei_domain;
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    response::Json,
+    routing::{delete, get, post, put},
+    Router,
+};
+use axum_extra::{headers::{authorization::Bearer, Authorization}, TypedHeader};
+use cedar_policy::Decision;
+use dotenvy::dotenv;
+use sqlx::PgPool;
+use std::env;
+use std::sync::Arc;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use crate::{
+    auth::{AuthorizationService, PolicyAdapter, PostgresAdapter},
+    mapper::HodeiMapperService,
+};
+use hodei_domain::{
+    Document, DocumentCommand, DocumentCreatePayload, DocumentUpdatePayload,
+    Artifact, ArtifactCommand, ArtifactCreatePayload, ArtifactUpdatePayload,
+    RequestContext, User
+};
+use kernel::Hrn;
+struct AppState {
+    db: PgPool,
+    auth_service: Arc<AuthorizationService>,
+}
+#[tokio::main]
+async fn main() {
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info,hodei_cedar_mvp_kernel=debug".into()))
+        .with(tracing_subscriber::fmt::layer())
+        .init();
+    dotenv().ok();
+    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    let db_pool = PgPool::connect(&database_url).await.expect("Failed to connect to Postgres");
+    sqlx::migrate!("./migrations").run(&db_pool).await.expect("Failed to run migrations");
+    seed_database(&db_pool).await;
+    let adapter: Arc<dyn PolicyAdapter> = Arc::new(PostgresAdapter::new(db_pool.clone()));
+    let auth_service = Arc::new(AuthorizationService::new(adapter).await.expect("Failed to init Auth Service"));
+    let state = Arc::new(AppState { db: db_pool, auth_service });
+    let app = Router::new()
+        .route("/health", get(health_check))
+        .route("/documents", post(create_document))
+        .route("/documents/{resource_id}", get(read_document))
+        .route("/documents/{resource_id}", put(update_document))
+        .route("/documents/{resource_id}", delete(delete_document))
+        .route("/artifacts", post(create_artifact))
+        .route("/artifacts/{resource_id}", get(read_artifact))
+        .route("/artifacts/{resource_id}", put(update_artifact))
+        .route("/artifacts/{resource_id}", delete(delete_artifact))
+        .route("/_api/policies", post(create_policy_handler))
+        .route("/_api/policies", get(list_policies_handler))
+        .route("/_api/policies/{id}", get(get_policy_handler))
+        .route("/_api/policies/{id}", put(update_policy_handler))
+        .route("/_api/policies/{id}", delete(delete_policy_handler))
+        .with_state(state);
+    let addr = "0.0.0.0:3000";
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    tracing::info!("🚀 Server running on {}", addr);
+    axum::serve(listener, app).await.unwrap();
+}
+async fn health_check() -> StatusCode {
+    StatusCode::OK
+}
+fn get_context_from_token(token: &str) -> RequestContext {
+    let tenant_id = if token.starts_with("alice") { "tenant-a" } else { "tenant-b" };
+    RequestContext { ip_address: "127.0.0.1".into(), tenant_id: tenant_id.to_string() }
+}
+async fn create_document(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
+    Json(mut payload): Json<DocumentCreatePayload>,
+) -> Result<Json<Document>, (StatusCode, String)> {
+    let context = get_context_from_token(auth.token());
+    let user = find_user(&state.db, auth.token()).await?;
+    payload.owner_id = Some(user.id.clone());
+    let action = DocumentCommand::Create(payload.clone());
+    let cedar_context = Some(serde_json::json!({ "ip_address": context.ip_address }));
+    let (request, entities) = HodeiMapperService::build_auth_package(&user, &action, None::<&Document>, &context, cedar_context).unwrap();
+    if state.auth_service.is_authorized(request, &entities).await == Decision::Deny {
+        return Err((StatusCode::FORBIDDEN, "Not authorized".into()));
+    }
+    let new_hrn = Hrn::builder().service("documents-api").tenant_id(&context.tenant_id).resource(&format!("document/{}", payload.resource_id)).unwrap().build().unwrap();
+    let doc = Document { id: new_hrn, owner_id: payload.owner_id.unwrap(), is_public: payload.is_public };
+    let created_doc = sqlx::query_as::<_, Document>("INSERT INTO documents (id, owner_id, is_public) VALUES ($1, $2, $3) RETURNING id, owner_id, is_public")
+        .bind(&doc.id)
+        .bind(&doc.owner_id)
+        .bind(doc.is_public)
+        .fetch_one(&state.db).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(created_doc))
+}
+async fn read_document(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
+    Path(resource_id): Path<String>,
+) -> Result<Json<Document>, (StatusCode, String)> {
+    let context = get_context_from_token(auth.token());
+    let user = find_user(&state.db, auth.token()).await?;
+    let doc_hrn = Hrn::builder().service("documents-api").tenant_id(&context.tenant_id).resource(&format!("document/{}", resource_id)).unwrap().build().unwrap();
+    let doc = find_document(&state.db, &doc_hrn).await?;
+    let action = DocumentCommand::Read { id: doc_hrn };
+    let cedar_context = Some(serde_json::json!({ "ip_address": context.ip_address }));
+    let (request, entities) = HodeiMapperService::build_auth_package(&user, &action, Some(&doc), &context, cedar_context).unwrap();
+    if state.auth_service.is_authorized(request, &entities).await == Decision::Deny {
+        return Err((StatusCode::FORBIDDEN, "Not authorized".into()));
+    }
+    Ok(Json(doc))
+}
+async fn update_document(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
+    Path(resource_id): Path<String>,
+    Json(payload): Json<DocumentUpdatePayload>,
+) -> Result<Json<Document>, (StatusCode, String)> {
+    let context = get_context_from_token(auth.token());
+    let user = find_user(&state.db, auth.token()).await?;
+    let doc_hrn = Hrn::builder().service("documents-api").tenant_id(&context.tenant_id).resource(&format!("document/{}", resource_id)).unwrap().build().unwrap();
+    let doc = find_document(&state.db, &doc_hrn).await?;
+    let action = DocumentCommand::Update { id: doc_hrn, payload: payload.clone() };
+    let cedar_context = Some(serde_json::json!({ "ip_address": context.ip_address }));
+    let (request, entities) = HodeiMapperService::build_auth_package(&user, &action, Some(&doc), &context, cedar_context).unwrap();
+    if state.auth_service.is_authorized(request, &entities).await == Decision::Deny {
+        return Err((StatusCode::FORBIDDEN, "Not authorized".into()));
+    }
+    let new_is_public = payload.is_public.unwrap_or(doc.is_public);
+    let updated_doc = sqlx::query_as::<_, Document>("UPDATE documents SET is_public = $1 WHERE id = $2 RETURNING id, owner_id, is_public")
+        .bind(new_is_public)
+        .bind(&doc.id)
+        .fetch_one(&state.db).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(updated_doc))
+}
+async fn delete_document(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
+    Path(resource_id): Path<String>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let context = get_context_from_token(auth.token());
+    let user = find_user(&state.db, auth.token()).await?;
+    let doc_hrn = Hrn::builder().service("documents-api").tenant_id(&context.tenant_id).resource(&format!("document/{}", resource_id)).unwrap().build().unwrap();
+    let doc = find_document(&state.db, &doc_hrn).await?;
+    let action = DocumentCommand::Delete { id: doc_hrn };
+    let cedar_context = Some(serde_json::json!({ "ip_address": context.ip_address }));
+    let (request, entities) = HodeiMapperService::build_auth_package(&user, &action, Some(&doc), &context, cedar_context).unwrap();
+    if state.auth_service.is_authorized(request, &entities).await == Decision::Deny {
+        return Err((StatusCode::FORBIDDEN, "Not authorized".into()));
+    }
+    sqlx::query("DELETE FROM documents WHERE id = $1")
+        .bind(&doc.id)
+        .execute(&state.db).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+async fn create_policy_handler(
+    State(state): State<Arc<AppState>>,
+    body: axum::body::Bytes,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let policy_content = String::from_utf8(body.to_vec())
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid UTF-8: {}", e)))?;
+    let policy_id = state.auth_service
+        .create_policy(policy_content)
+        .await
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    Ok(Json(serde_json::json!({
+        "policy_id": policy_id,
+        "message": "Policy created successfully"
+    })))
+}
+async fn list_policies_handler(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let policies = state.auth_service
+        .list_policies()
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let policies_json: Vec<serde_json::Value> = policies
+        .into_iter()
+        .map(|(id, content)| serde_json::json!({
+            "id": id,
+            "content": content
+        }))
+        .collect();
+    Ok(Json(serde_json::json!({
+        "policies": policies_json,
+        "count": policies_json.len()
+    })))
+}
+async fn get_policy_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let policy = state.auth_service
+        .get_policy(id.clone())
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    match policy {
+        Some(content) => Ok(Json(serde_json::json!({
+            "id": id,
+            "content": content
+        }))),
+        None => Err((StatusCode::NOT_FOUND, "Policy not found".to_string()))
+    }
+}
+async fn update_policy_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    body: axum::body::Bytes,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let policy_content = String::from_utf8(body.to_vec())
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid UTF-8: {}", e)))?;
+    state.auth_service
+        .update_policy(id.clone(), policy_content)
+        .await
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    Ok(Json(serde_json::json!({
+        "policy_id": id,
+        "message": "Policy updated successfully"
+    })))
+}
+async fn delete_policy_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    state.auth_service
+        .delete_policy(id)
+        .await
+        .map_err(|e| (StatusCode::NOT_FOUND, e.to_string()))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+async fn find_user(db: &PgPool, token: &str) -> Result<User, (StatusCode, String)> {
+    let context = get_context_from_token(token);
+    let user_hrn = Hrn::builder().service("users-api").tenant_id(&context.tenant_id).resource(&format!("user/{}", token)).unwrap().build().unwrap();
+    sqlx::query_as::<_, User>("SELECT id, role FROM users WHERE id = $1")
+        .bind(&user_hrn)
+        .fetch_optional(db).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?.ok_or((StatusCode::UNAUTHORIZED, "User not found".into()))
+}
+async fn find_document(db: &PgPool, hrn: &Hrn) -> Result<Document, (StatusCode, String)> {
+    sqlx::query_as::<_, Document>("SELECT id, owner_id, is_public FROM documents WHERE id = $1")
+        .bind(hrn)
+        .fetch_optional(db).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?.ok_or((StatusCode::NOT_FOUND, "Document not found".into()))
+}
+async fn find_artifact(db: &PgPool, hrn: &Hrn) -> Result<Artifact, (StatusCode, String)> {
+    sqlx::query_as::<_, Artifact>("SELECT id, created_by, updated_by, document_id, name, artifact_type, version, is_active FROM artifacts WHERE id = $1")
+        .bind(hrn)
+        .fetch_optional(db).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?.ok_or((StatusCode::NOT_FOUND, "Artifact not found".into()))
+}
+async fn create_artifact(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
+    Json(payload): Json<ArtifactCreatePayload>,
+) -> Result<Json<Artifact>, (StatusCode, String)> {
+    let context = get_context_from_token(auth.token());
+    let user = find_user(&state.db, auth.token()).await?;
+    let action = ArtifactCommand::Create(payload.clone());
+    let cedar_context = Some(serde_json::json!({ "ip_address": context.ip_address }));
+    let (request, entities) = HodeiMapperService::build_auth_package(&user, &action, None::<&Artifact>, &context, cedar_context).unwrap();
+    if state.auth_service.is_authorized(request, &entities).await == Decision::Deny {
+        return Err((StatusCode::FORBIDDEN, "Not authorized".into()));
+    }
+    let artifact_hrn = Hrn::builder().service("artifacts-api").tenant_id(&context.tenant_id).resource(&format!("artifact/{}", payload.resource_id)).unwrap().build().unwrap();
+    let created_artifact = sqlx::query_as::<_, Artifact>(
+        "INSERT INTO artifacts (id, created_by, updated_by, document_id, name, artifact_type, version, is_active) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, created_by, updated_by, document_id, name, artifact_type, version, is_active"
+    )
+        .bind(&artifact_hrn)
+        .bind(&user.id)
+        .bind(&user.id)
+        .bind(&payload.document_id)
+        .bind(&payload.name)
+        .bind(&payload.artifact_type)
+        .bind(&payload.version)
+        .bind(true)
+        .fetch_one(&state.db).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(created_artifact))
+}
+async fn read_artifact(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
+    Path(resource_id): Path<String>,
+) -> Result<Json<Artifact>, (StatusCode, String)> {
+    let context = get_context_from_token(auth.token());
+    let user = find_user(&state.db, auth.token()).await?;
+    let artifact_hrn = Hrn::builder().service("artifacts-api").tenant_id(&context.tenant_id).resource(&format!("artifact/{}", resource_id)).unwrap().build().unwrap();
+    let artifact = find_artifact(&state.db, &artifact_hrn).await?;
+    let action = ArtifactCommand::Read { id: artifact_hrn };
+    let cedar_context = Some(serde_json::json!({ "ip_address": context.ip_address }));
+    let (request, entities) = HodeiMapperService::build_auth_package(&user, &action, Some(&artifact), &context, cedar_context).unwrap();
+    if state.auth_service.is_authorized(request, &entities).await == Decision::Deny {
+        return Err((StatusCode::FORBIDDEN, "Not authorized".into()));
+    }
+    Ok(Json(artifact))
+}
+async fn update_artifact(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
+    Path(resource_id): Path<String>,
+    Json(payload): Json<ArtifactUpdatePayload>,
+) -> Result<Json<Artifact>, (StatusCode, String)> {
+    let context = get_context_from_token(auth.token());
+    let user = find_user(&state.db, auth.token()).await?;
+    let artifact_hrn = Hrn::builder().service("artifacts-api").tenant_id(&context.tenant_id).resource(&format!("artifact/{}", resource_id)).unwrap().build().unwrap();
+    let artifact = find_artifact(&state.db, &artifact_hrn).await?;
+    let action = ArtifactCommand::Update { id: artifact_hrn.clone(), payload: payload.clone() };
+    let cedar_context = Some(serde_json::json!({ "ip_address": context.ip_address }));
+    let (request, entities) = HodeiMapperService::build_auth_package(&user, &action, Some(&artifact), &context, cedar_context).unwrap();
+    if state.auth_service.is_authorized(request, &entities).await == Decision::Deny {
+        return Err((StatusCode::FORBIDDEN, "Not authorized".into()));
+    }
+    let new_name = payload.name.unwrap_or(artifact.name);
+    let new_version = payload.version.unwrap_or(artifact.version);
+    let new_is_active = payload.is_active.unwrap_or(artifact.is_active);
+    let updated_artifact = sqlx::query_as::<_, Artifact>(
+        "UPDATE artifacts SET name = $1, version = $2, is_active = $3, updated_by = $4 WHERE id = $5 RETURNING id, created_by, updated_by, document_id, name, artifact_type, version, is_active"
+    )
+        .bind(new_name)
+        .bind(new_version)
+        .bind(new_is_active)
+        .bind(&user.id)
+        .bind(&artifact_hrn)
+        .fetch_one(&state.db).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(updated_artifact))
+}
+async fn delete_artifact(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
+    Path(resource_id): Path<String>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let context = get_context_from_token(auth.token());
+    let user = find_user(&state.db, auth.token()).await?;
+    let artifact_hrn = Hrn::builder().service("artifacts-api").tenant_id(&context.tenant_id).resource(&format!("artifact/{}", resource_id)).unwrap().build().unwrap();
+    let artifact = find_artifact(&state.db, &artifact_hrn).await?;
+    let action = ArtifactCommand::Delete { id: artifact_hrn.clone() };
+    let cedar_context = Some(serde_json::json!({ "ip_address": context.ip_address }));
+    let (request, entities) = HodeiMapperService::build_auth_package(&user, &action, Some(&artifact), &context, cedar_context).unwrap();
+    if state.auth_service.is_authorized(request, &entities).await == Decision::Deny {
+        return Err((StatusCode::FORBIDDEN, "Not authorized".into()));
+    }
+    sqlx::query("DELETE FROM artifacts WHERE id = $1")
+        .bind(&artifact_hrn)
+        .execute(&state.db).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+async fn seed_database(db: &PgPool) {
+    let alice_hrn = Hrn::builder().service("users-api").tenant_id("tenant-a").resource("user/alice").unwrap().build().unwrap();
+    let bob_hrn = Hrn::builder().service("users-api").tenant_id("tenant-b").resource("user/bob").unwrap().build().unwrap();
+    let doc1_hrn = Hrn::builder().service("documents-api").tenant_id("tenant-a").resource("document/doc1").unwrap().build().unwrap();
+    let doc2_hrn = Hrn::builder().service("documents-api").tenant_id("tenant-b").resource("document/doc2").unwrap().build().unwrap();
+    sqlx::query("INSERT INTO users (id, role) VALUES ($1, 'admin') ON CONFLICT (id) DO NOTHING")
+        .bind(&alice_hrn).execute(db).await.ok();
+    sqlx::query("INSERT INTO users (id, role) VALUES ($1, 'user') ON CONFLICT (id) DO NOTHING")
+        .bind(&bob_hrn).execute(db).await.ok();
+    sqlx::query("INSERT INTO documents (id, owner_id, is_public) VALUES ($1, $2, false) ON CONFLICT (id) DO NOTHING")
+        .bind(&doc1_hrn).bind(&alice_hrn).execute(db).await.ok();
+    sqlx::query("INSERT INTO documents (id, owner_id, is_public) VALUES ($1, $2, true) ON CONFLICT (id) DO NOTHING")
+        .bind(&doc2_hrn).bind(&bob_hrn).execute(db).await.ok();
+    let p_tenant = r#"forbid(principal, action, resource) unless { principal.tenant_id == resource.tenant_id };"#;
+    let p_owner = r#"permit(principal, action, resource) when {
+        resource has owner_id &&
+        resource.owner_id == principal
+    };"#;
+    let p_admin_create_doc = r#"permit(principal, action == Action::"Document::Create", resource) when { principal.role == "admin" };"#;
+    // Política para admins: pueden crear Artifacts
+    let p_admin_create_artifact = r#"permit(principal, action == Action::"Artifact::Create", resource) when { principal.role == "admin" };"#;
+    // Política para Artifacts: el creador tiene permisos completos
+    let p_artifact_creator = r#"permit(principal, action, resource) when {
+        resource has created_by &&
+        resource.created_by == principal
+    };"#;
+    sqlx::query("INSERT INTO policies (id, content) VALUES ('tenant_isolation', $1) ON CONFLICT (id) DO UPDATE SET content = $1")
+        .bind(p_tenant).execute(db).await.ok();
+    sqlx::query("INSERT INTO policies (id, content) VALUES ('owner_permissions', $1) ON CONFLICT (id) DO UPDATE SET content = $1")
+        .bind(p_owner).execute(db).await.ok();
+    sqlx::query("INSERT INTO policies (id, content) VALUES ('admin_create_document', $1) ON CONFLICT (id) DO UPDATE SET content = $1")
+        .bind(p_admin_create_doc).execute(db).await.ok();
+    sqlx::query("INSERT INTO policies (id, content) VALUES ('admin_create_artifact', $1) ON CONFLICT (id) DO UPDATE SET content = $1")
+        .bind(p_admin_create_artifact).execute(db).await.ok();
+    sqlx::query("INSERT INTO policies (id, content) VALUES ('artifact_creator_permissions', $1) ON CONFLICT (id) DO UPDATE SET content = $1")
+        .bind(p_artifact_creator).execute(db).await.ok();
+    tracing::info!("✅ DB seeded with HRNs and multi-tenant policies.");
+}
+
+================
+File: hodei_provider_derive/src/lib.rs
+================
+use proc_macro::TokenStream;
+use quote::quote;
+use syn::{parse_macro_input, Data, DeriveInput, Fields, Lit, Meta};
+use serde_json;
+fn extract_entity_type_from_attrs(attrs: &[syn::Attribute]) -> Option<String> {
+    for attr in attrs {
+        if attr.path().is_ident("entity_type") {
+            if let Meta::NameValue(meta) = &attr.meta {
+                if let syn::Expr::Lit(expr_lit) = &meta.value {
+                    if let Lit::Str(lit_str) = &expr_lit.lit {
+                        return Some(lit_str.value());
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+#[proc_macro_derive(HodeiEntity, attributes(hodei, entity_type))]
+pub fn hodei_entity_derive(input: TokenStream) -> TokenStream {
+    let ast = parse_macro_input!(input as DeriveInput);
+    let struct_name = &ast.ident;
+    let mut entity_type_str: Option<String> = None;
+    for attr in &ast.attrs {
+        if attr.path().is_ident("hodei") {
+            let _ = attr.parse_nested_meta(|meta| {
+                if meta.path.is_ident("entity_type") {
+                    if let Ok(Lit::Str(s)) = meta.value()?.parse() {
+                        entity_type_str = Some(s.value());
+                    }
+                }
+                Ok(())
+            });
+        }
+    }
+    let entity_type_str = entity_type_str.expect("#[derive(HodeiEntity)] requiere #[hodei(entity_type = \"...\")]");
+    let mut attributes = serde_json::Map::new();
+    let mut attr_map_assignments: Vec<proc_macro2::TokenStream> = Vec::new();
+    if let Data::Struct(data_struct) = &ast.data {
+        if let Fields::Named(fields) = &data_struct.fields {
+            for field in &fields.named {
+                let field_ident = field.ident.as_ref().unwrap();
+                let field_name = field_ident.to_string();
+                if field_name == "id" { continue; }
+                let type_ident = match &field.ty {
+                    syn::Type::Path(tp) => tp.path.segments.last().map(|s| s.ident.to_string()).unwrap_or_else(|| "Complex".to_string()),
+                    _ => "Complex".to_string(),
+                };
+                let schema_type = if type_ident == "Hrn" {
+                    let entity_type = extract_entity_type_from_attrs(&field.attrs)
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "Campo '{}' de tipo Hrn requiere el atributo #[entity_type = \"Namespace::EntityType\"]\n\
+                                Ejemplo: #[entity_type = \"MyApp::User\"]",
+                                field_name
+                            )
+                        });
+                    serde_json::json!({
+                        "type": "Entity",
+                        "name": entity_type,
+                        "required": true
+                    })
+                } else {
+                    let cedar_type = match type_ident.as_str() {
+                        "String" => "String",
+                        "i64" | "u64" | "i32" | "u32" | "usize" => "Long",
+                        "bool" => "Boolean",
+                        _ => "String",
+                    };
+                    serde_json::json!({ "type": cedar_type, "required": true })
+                };
+                attributes.insert(field_name.clone(), schema_type);
+                let value_expr = if type_ident == "Hrn" {
+                    let entity_type = extract_entity_type_from_attrs(&field.attrs)
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "Campo '{}' de tipo Hrn requiere el atributo #[entity_type = \"Namespace::EntityType\"]\n\
+                                Ejemplo: #[entity_type = \"MyApp::User\"]",
+                                field_name
+                            )
+                        });
+                    let entity_type_lit = syn::LitStr::new(&entity_type, proc_macro2::Span::call_site());
+                    quote! {
+                        {
+                            let euid = cedar_policy::EntityUid::from_type_name_and_id(
+                                #entity_type_lit.parse().unwrap(),
+                                self.#field_ident.to_string().parse().unwrap(),
+                            );
+                            cedar_policy::RestrictedExpression::new_entity_uid(euid)
+                        }
+                    }
+                } else if type_ident == "String" {
+                    quote! { cedar_policy::RestrictedExpression::new_string(self.#field_ident.clone()) }
+                } else if type_ident == "bool" {
+                    quote! { cedar_policy::RestrictedExpression::new_bool(self.#field_ident) }
+                } else {
+                    quote! { cedar_policy::RestrictedExpression::new_long(self.#field_ident as i64) }
+                };
+                attr_map_assignments.push(quote! {
+                    attrs.insert(#field_name.into(), #value_expr);
+                });
+            }
+        }
+    }
+    attributes.insert("tenant_id".to_string(), serde_json::json!({ "type": "String" }));
+    attributes.insert("service".to_string(), serde_json::json!({ "type": "String" }));
+    let schema_fragment_json = serde_json::json!({
+        "memberOfTypes": [],
+        "shape": {
+            "type": "Record",
+            "attributes": attributes
+        }
+    });
+    let schema_fragment_str = serde_json::to_string(&schema_fragment_json).unwrap();
+    let expanded = quote! {
+        impl hodei_provider::RuntimeHodeiEntityMapper for #struct_name {
+            fn hodei_type_name(&self) -> &'static str { #entity_type_str }
+            fn hodei_id(&self) -> String { self.id.resource_id.clone() }
+            fn hodei_hrn(&self) -> &kernel::Hrn { &self.id }
+            fn to_cedar_entity(&self) -> cedar_policy::Entity {
+                let euid = self.to_cedar_euid();
+                let mut attrs = std::collections::HashMap::new();
+                #(#attr_map_assignments)*
+                attrs.insert("tenant_id".into(), cedar_policy::RestrictedExpression::new_string(self.id.tenant_id.clone()));
+                attrs.insert("service".into(), cedar_policy::RestrictedExpression::new_string(self.id.service.clone()));
+                cedar_policy::Entity::new(euid, attrs, std::collections::HashSet::new()).unwrap()
+            }
+        }
+        #[cfg(feature = "schema-discovery")]
+        hodei_provider::inventory::submit! {
+            hodei_provider::EntitySchemaFragment { entity_type: #entity_type_str, fragment_json: #schema_fragment_str, }
+        }
+    };
+    expanded.into()
+}
+#[proc_macro_derive(HodeiAction, attributes(hodei))]
+pub fn hodei_action_derive(input: TokenStream) -> TokenStream {
+    let ast = parse_macro_input!(input as DeriveInput);
+    let enum_name = &ast.ident;
+    let mut namespace: Option<String> = None;
+    for attr in &ast.attrs {
+        if attr.path().is_ident("hodei") {
+            let _ = attr.parse_nested_meta(|meta| {
+                if meta.path.is_ident("namespace") {
+                    if let Ok(Lit::Str(s)) = meta.value()?.parse() {
+                        namespace = Some(s.value());
+                    }
+                }
+                Ok(())
+            });
+        }
+    }
+    let _namespace = namespace.expect("#[derive(HodeiAction)] requiere #[hodei(namespace = \"...\")]");
+    let data_enum = match &ast.data {
+        Data::Enum(de) => de,
+        _ => panic!("HodeiAction solo se puede derivar en enums"),
+    };
+    let mut inventory_submissions: Vec<proc_macro2::TokenStream> = Vec::new();
+    let mut euid_match_arms: Vec<proc_macro2::TokenStream> = Vec::new();
+    let mut creates_resource_match_arms: Vec<proc_macro2::TokenStream> = Vec::new();
+    let mut virtual_entity_match_arms: Vec<proc_macro2::TokenStream> = Vec::new();
+    for variant in &data_enum.variants {
+        let variant_name = &variant.ident;
+        let action_name_str = variant_name.to_string();
+        let mut principal_types: Vec<String> = Vec::new();
+        let mut resource_types: Vec<String> = Vec::new();
+        let mut is_create_action = false;
+        for attr in &variant.attrs {
+            if attr.path().is_ident("hodei") {
+                let _ = attr.parse_nested_meta(|meta| {
+                    if meta.path.is_ident("principal") {
+                        if let Ok(Lit::Str(s)) = meta.value()?.parse() {
+                            principal_types.push(s.value());
+                        }
+                    } else if meta.path.is_ident("resource") {
+                        if let Ok(Lit::Str(s)) = meta.value()?.parse() {
+                            resource_types.push(s.value());
+                        }
+                    } else if meta.path.is_ident("creates_resource") {
+                        is_create_action = true;
+                    }
+                    Ok(())
+                });
+            }
+        }
+        let resource_type = resource_types.first().expect("Action must have at least one resource type");
+        let full_action_name = format!("{}::{}", resource_type, action_name_str);
+        let action_euid_str = format!("Action::\"{}\"", full_action_name);
+        let action_schema_json = serde_json::json!({
+            "appliesTo": {
+                "principalTypes": principal_types,
+                "resourceTypes": resource_types
+            }
+        });
+        let action_schema_str = serde_json::to_string(&action_schema_json).unwrap();
+        inventory_submissions.push(quote! {
+            #[cfg(feature = "schema-discovery")]
+            hodei_provider::inventory::submit! {
+                hodei_provider::ActionSchemaFragment {
+                    name: #full_action_name,
+                    fragment_json: #action_schema_str
+                }
+            }
+        });
+        let fields_pattern = match &variant.fields {
+            Fields::Named(_) => quote! { {..} },
+            Fields::Unnamed(_) => quote! { (..) },
+            Fields::Unit => quote! {},
+        };
+        euid_match_arms.push(quote! { Self::#variant_name #fields_pattern => #action_euid_str.parse().unwrap() });
+        if is_create_action {
+            creates_resource_match_arms.push(quote! { Self::#variant_name #fields_pattern => true });
+            match &variant.fields {
+                Fields::Unnamed(f) if f.unnamed.len() == 1 => {
+                    virtual_entity_match_arms.push(quote! {
+                        Self::#variant_name(payload) => {
+                            let ctx = context.downcast_ref::<crate::RequestContext>().expect("Invalid context type");
+                            Some(payload.to_virtual_entity(ctx))
+                        }
+                    });
+                }
+                _ => {
+                    virtual_entity_match_arms.push(quote! { Self::#variant_name #fields_pattern => None });
+                }
+            }
+        } else {
+            creates_resource_match_arms.push(quote! { Self::#variant_name #fields_pattern => false });
+        }
+    }
+    virtual_entity_match_arms.push(quote! { _ => None });
+    let expanded = quote! {
+        #(#inventory_submissions)*
+        impl hodei_provider::RuntimeHodeiActionMapper for #enum_name {
+            fn to_cedar_action_euid(&self) -> cedar_policy::EntityUid {
+                match self { #(#euid_match_arms,)* }
+            }
+            fn creates_resource_from_payload(&self) -> bool {
+                match self { #(#creates_resource_match_arms,)* }
+            }
+            fn get_payload_as_virtual_entity(&self, context: &dyn std::any::Any) -> Option<cedar_policy::Entity> {
+                match self { #(#virtual_entity_match_arms,)* }
+            }
+        }
+    };
+    expanded.into()
+}
+
+================
+File: hodei_domain/src/lib.rs
+================
+use serde::{Deserialize, Serialize};
+use hodei_provider::{HodeiEntity, HodeiAction};
+use cedar_policy::{Entity, EntityUid};
+use kernel::Hrn;
+#[derive(Debug, Clone)]
+pub struct RequestContext {
+    pub ip_address: String,
+    pub tenant_id: String,
+}
+#[derive(Debug, Serialize, Deserialize, Clone, HodeiEntity, sqlx::FromRow)]
+#[hodei(entity_type = "HodeiMVP::User")]
+pub struct User {
+    pub id: Hrn,
+    pub role: String,
+}
+#[derive(Debug, Serialize, Deserialize, Clone, HodeiEntity, sqlx::FromRow)]
+#[hodei(entity_type = "HodeiMVP::Document")]
+pub struct Document {
+    pub id: Hrn,
+    #[entity_type = "HodeiMVP::User"]
+    pub owner_id: Hrn,
+    pub is_public: bool,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DocumentCreatePayload {
+    pub resource_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_id: Option<Hrn>,
+    pub is_public: bool,
+}
+impl DocumentCreatePayload {
+    pub fn to_virtual_entity(&self, context: &RequestContext) -> Entity {
+        let hrn = Hrn::builder()
+            .service("documents-api")
+            .tenant_id(&context.tenant_id)
+            .resource(&format!("document/{}", self.resource_id)).unwrap()
+            .build().unwrap();
+        let euid = EntityUid::from_type_name_and_id(
+            "HodeiMVP::Document".parse().unwrap(),
+            hrn.to_string().parse().unwrap(),
+        );
+        let mut attrs = std::collections::HashMap::new();
+        if let Some(owner_hrn) = &self.owner_id {
+            let owner_euid = EntityUid::from_type_name_and_id(
+                "HodeiMVP::User".parse().unwrap(),
+                owner_hrn.to_string().parse().unwrap(),
+            );
+            attrs.insert("owner_id".into(), cedar_policy::RestrictedExpression::new_entity_uid(owner_euid));
+        }
+        attrs.insert("is_public".into(), cedar_policy::RestrictedExpression::new_bool(self.is_public));
+        attrs.insert("tenant_id".into(), cedar_policy::RestrictedExpression::new_string(hrn.tenant_id.clone()));
+        attrs.insert("service".into(), cedar_policy::RestrictedExpression::new_string(hrn.service.clone()));
+        Entity::new(euid, attrs, std::collections::HashSet::new()).unwrap()
+    }
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DocumentUpdatePayload {
+    pub is_public: Option<bool>,
+}
+#[derive(Debug, Serialize, Deserialize, Clone, HodeiEntity, sqlx::FromRow)]
+#[hodei(entity_type = "HodeiMVP::Artifact")]
+pub struct Artifact {
+    pub id: Hrn,
+    #[entity_type = "HodeiMVP::User"]
+    pub created_by: Hrn,
+    #[entity_type = "HodeiMVP::User"]
+    pub updated_by: Hrn,
+    #[entity_type = "HodeiMVP::Document"]
+    pub document_id: Hrn,
+    pub name: String,
+    pub artifact_type: String,
+    pub version: String,
+    pub is_active: bool,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArtifactCreatePayload {
+    pub resource_id: String,
+    pub name: String,
+    pub artifact_type: String,
+    pub version: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document_id: Option<Hrn>,
+}
+impl ArtifactCreatePayload {
+    pub fn to_virtual_entity(&self, context: &RequestContext) -> Entity {
+        let hrn = Hrn::builder()
+            .service("artifacts-api")
+            .tenant_id(&context.tenant_id)
+            .resource(&format!("artifact/{}", self.resource_id)).unwrap()
+            .build().unwrap();
+        let euid = EntityUid::from_type_name_and_id(
+            "HodeiMVP::Artifact".parse().unwrap(),
+            hrn.to_string().parse().unwrap(),
+        );
+        let mut attrs = std::collections::HashMap::new();
+        let placeholder_user_hrn = Hrn::builder()
+            .service("users-api")
+            .tenant_id(&context.tenant_id)
+            .resource("user/placeholder").unwrap()
+            .build().unwrap();
+        let creator_euid = EntityUid::from_type_name_and_id(
+            "HodeiMVP::User".parse().unwrap(),
+            placeholder_user_hrn.to_string().parse().unwrap(),
+        );
+        attrs.insert("created_by".into(), cedar_policy::RestrictedExpression::new_entity_uid(creator_euid.clone()));
+        attrs.insert("updated_by".into(), cedar_policy::RestrictedExpression::new_entity_uid(creator_euid));
+        if let Some(doc_hrn) = &self.document_id {
+            let doc_euid = EntityUid::from_type_name_and_id(
+                "HodeiMVP::Document".parse().unwrap(),
+                doc_hrn.to_string().parse().unwrap(),
+            );
+            attrs.insert("document_id".into(), cedar_policy::RestrictedExpression::new_entity_uid(doc_euid));
+        }
+        attrs.insert("name".into(), cedar_policy::RestrictedExpression::new_string(self.name.clone()));
+        attrs.insert("artifact_type".into(), cedar_policy::RestrictedExpression::new_string(self.artifact_type.clone()));
+        attrs.insert("version".into(), cedar_policy::RestrictedExpression::new_string(self.version.clone()));
+        attrs.insert("is_active".into(), cedar_policy::RestrictedExpression::new_bool(true));
+        attrs.insert("tenant_id".into(), cedar_policy::RestrictedExpression::new_string(context.tenant_id.clone()));
+        attrs.insert("service".into(), cedar_policy::RestrictedExpression::new_string("artifacts-api".to_string()));
+        Entity::new(euid, attrs, std::collections::HashSet::new()).unwrap()
+    }
+}
+#[derive(Debug, Clone, HodeiAction)]
+#[hodei(namespace = "HodeiMVP")]
+pub enum ArtifactCommand {
+    #[hodei(principal = "User", resource = "Artifact", creates_resource)]
+    Create(ArtifactCreatePayload),
+    #[hodei(principal = "User", resource = "Artifact")]
+    Read { id: Hrn },
+    #[hodei(principal = "User", resource = "Artifact")]
+    Update { id: Hrn, payload: ArtifactUpdatePayload },
+    #[hodei(principal = "User", resource = "Artifact")]
+    Delete { id: Hrn },
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArtifactUpdatePayload {
+    pub name: Option<String>,
+    pub version: Option<String>,
+    pub is_active: Option<bool>,
+}
+#[derive(Debug, Clone, HodeiAction)]
+#[hodei(namespace = "HodeiMVP")]
+pub enum DocumentCommand {
+    #[hodei(principal = "User", resource = "Document", creates_resource)]
+    Create(DocumentCreatePayload),
+    #[hodei(principal = "User", resource = "Document")]
+    Read { id: Hrn },
+    #[hodei(principal = "User", resource = "Document")]
+    Update { id: Hrn, payload: DocumentUpdatePayload },
+    #[hodei(principal = "User", resource = "Document")]
+    Delete { id: Hrn },
+}
+#[cfg(feature = "schema-discovery")]
+#[used]
+pub static HODEI_DOMAIN_INVENTORY_ANCHOR: fn() = || {};
+
+
+
+
+
+================================================================
+End of Codebase
+================================================================
