@@ -1,9 +1,9 @@
-use cedar_policy::{Entity, EntityUid};
-use kernel::Hrn;
+use cedar_policy::{Entity, EntityUid, RestrictedExpression};
+use hodei_kernel::Hrn;
 
+pub use hodei_kernel;
 pub use hodei_provider_derive::{HodeiAction, HodeiEntity};
 pub use inventory;
-pub use kernel;
 
 pub struct EntitySchemaFragment {
     pub entity_type: &'static str,

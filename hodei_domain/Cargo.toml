@@ -1,11 +1,20 @@
 [package]
-name = "hodei_domain"
+name = "hodei-domain"
 version = "0.1.0"
 edition = "2024"
+authors = ["Ruben Dario Cabrera Garcia <rubentxu74@gmail.com>"]
+description = "Domain entities and commands for Hodei authorization with Cedar Policy"
+license = "MIT"
+repository = "https://github.com/Rubentxu/hodei-policies"
+homepage = "https://github.com/Rubentxu/hodei-policies"
+documentation = "https://docs.rs/hodei-domain"
+keywords = ["authorization", "cedar", "domain", "entities"]
+categories = ["authentication", "web-programming"]
+readme = "../README.md"
 
 [dependencies]
-hodei_provider = { path = "../hodei_provider" }
-kernel = { path = "../kernel" }
+hodei-provider = { path = "../hodei_provider", version = "0.1.0" }
+hodei-kernel = { path = "../kernel", version = "0.1.0" }
 cedar-policy = "4.7.0"
 serde = { version = "1.0.203", features = ["derive"] }
 sqlx = { version = "0.8.6", features = ["postgres", "macros"] }

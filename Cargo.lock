@@ -810,7 +810,27 @@ dependencies = [
 ]
 
 [[package]]
-name = "hodei_cedar_mvp_kernel"
+name = "hodei-domain"
+version = "0.1.0"
+dependencies = [
+ "cedar-policy",
+ "hodei-kernel",
+ "hodei-provider",
+ "serde",
+ "sqlx",
+]
+
+[[package]]
+name = "hodei-kernel"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "sqlx",
+ "thiserror",
+]
+
+[[package]]
+name = "hodei-policies"
 version = "0.1.0"
 dependencies = [
  "async-trait",
@@ -818,9 +838,9 @@ dependencies = [
  "axum-extra",
  "cedar-policy",
  "dotenvy",
- "hodei_domain",
- "hodei_provider",
- "kernel",
+ "hodei-domain",
+ "hodei-kernel",
+ "hodei-provider",
  "serde",
  "serde_json",
  "sqlx",
@@ -832,28 +852,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "hodei_domain"
+name = "hodei-provider"
 version = "0.1.0"
 dependencies = [
  "cedar-policy",
- "hodei_provider",
- "kernel",
- "serde",
- "sqlx",
-]
-
-[[package]]
-name = "hodei_provider"
-version = "0.1.0"
-dependencies = [
- "cedar-policy",
- "hodei_provider_derive",
+ "hodei-kernel",
+ "hodei-provider-derive",
  "inventory",
- "kernel",
 ]
 
 [[package]]
-name = "hodei_provider_derive"
+name = "hodei-provider-derive"
 version = "0.1.0"
 dependencies = [
  "proc-macro2",
@@ -1155,15 +1164,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ecc2af9a1119c51f12a14607e783cb977bde58bc069ff0c3da1095e635d70654"
 dependencies = [
  "cpufeatures",
-]
-
-[[package]]
-name = "kernel"
-version = "0.1.0"
-dependencies = [
- "serde",
- "sqlx",
- "thiserror",
 ]
 
 [[package]]

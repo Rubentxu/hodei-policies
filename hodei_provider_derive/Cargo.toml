@@ -1,7 +1,16 @@
 [package]
-name = "hodei_provider_derive"
+name = "hodei-provider-derive"
 version = "0.1.0"
 edition = "2024"
+authors = ["Ruben Dario Cabrera Garcia <rubentxu74@gmail.com>"]
+description = "Procedural macros for Hodei authorization system with Cedar Policy"
+license = "MIT"
+repository = "https://github.com/Rubentxu/hodei-policies"
+homepage = "https://github.com/Rubentxu/hodei-policies"
+documentation = "https://docs.rs/hodei-provider-derive"
+keywords = ["authorization", "cedar", "macros", "derive"]
+categories = ["authentication", "development-tools::procedural-macro-helpers"]
+readme = "../README.md"
 
 [lib]
 proc-macro = true
