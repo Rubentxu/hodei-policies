@@ -51,17 +51,26 @@ async fn main() {
     let state = Arc::new(AppState { db: db_pool, auth_service });
 
     let app = Router::new()
+        .route("/health", get(health_check))
         .route("/documents", post(create_document))
-        .route("/documents/:id", get(read_document))
-        .route("/documents/:id", put(update_document))
-        .route("/documents/:id", delete(delete_document))
-        .route("/_api/policies/:id", post(add_policy))
+        .route("/documents/{resource_id}", get(read_document))
+        .route("/documents/{resource_id}", put(update_document))
+        .route("/documents/{resource_id}", delete(delete_document))
+        .route("/_api/policies", post(create_policy_handler))
+        .route("/_api/policies", get(list_policies_handler))
+        .route("/_api/policies/{id}", get(get_policy_handler))
+        .route("/_api/policies/{id}", put(update_policy_handler))
+        .route("/_api/policies/{id}", delete(delete_policy_handler))
         .with_state(state);
 
     let addr = "0.0.0.0:3000";
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     tracing::info!("🚀 Server running on {}", addr);
     axum::serve(listener, app).await.unwrap();
+}
+
+async fn health_check() -> StatusCode {
+    StatusCode::OK
 }
 
 fn get_context_from_token(token: &str) -> RequestContext {
@@ -76,7 +85,7 @@ async fn create_document(
 ) -> Result<Json<Document>, (StatusCode, String)> {
     let context = get_context_from_token(auth.token());
     let user = find_user(&state.db, auth.token()).await?;
-    payload.owner_id = user.id.clone();
+    payload.owner_id = Some(user.id.clone());
     let action = DocumentCommand::Create(payload.clone());
     let cedar_context = Some(serde_json::json!({ "ip_address": context.ip_address }));
     let (request, entities) = HodeiMapperService::build_auth_package(&user, &action, None::<&Document>, &context, cedar_context).unwrap();
@@ -84,7 +93,7 @@ async fn create_document(
         return Err((StatusCode::FORBIDDEN, "Not authorized".into()));
     }
     let new_hrn = Hrn::builder().service("documents-api").tenant_id(&context.tenant_id).resource(&format!("document/{}", payload.resource_id)).unwrap().build().unwrap();
-    let doc = Document { id: new_hrn, owner_id: payload.owner_id, is_public: payload.is_public };
+    let doc = Document { id: new_hrn, owner_id: payload.owner_id.unwrap(), is_public: payload.is_public };
     
     let created_doc = sqlx::query_as::<_, Document>("INSERT INTO documents (id, owner_id, is_public) VALUES ($1, $2, $3) RETURNING id, owner_id, is_public")
         .bind(&doc.id)
@@ -157,12 +166,102 @@ async fn delete_document(
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn add_policy(
+// ============================================================================
+// CRUD de Políticas - Gestión de Ciclo de Vida (como AWS Verified Permissions)
+// ============================================================================
+
+/// Crear nueva política - Retorna UUID único
+async fn create_policy_handler(
+    State(state): State<Arc<AppState>>,
+    body: axum::body::Bytes,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let policy_content = String::from_utf8(body.to_vec())
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid UTF-8: {}", e)))?;
+    
+    let policy_id = state.auth_service
+        .create_policy(policy_content)
+        .await
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    
+    Ok(Json(serde_json::json!({
+        "policy_id": policy_id,
+        "message": "Policy created successfully"
+    })))
+}
+
+/// Listar todas las políticas
+async fn list_policies_handler(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let policies = state.auth_service
+        .list_policies()
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    
+    let policies_json: Vec<serde_json::Value> = policies
+        .into_iter()
+        .map(|(id, content)| serde_json::json!({
+            "id": id,
+            "content": content
+        }))
+        .collect();
+    
+    Ok(Json(serde_json::json!({
+        "policies": policies_json,
+        "count": policies_json.len()
+    })))
+}
+
+/// Obtener una política por ID
+async fn get_policy_handler(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
-    body: String,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let policy = state.auth_service
+        .get_policy(id.clone())
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    
+    match policy {
+        Some(content) => Ok(Json(serde_json::json!({
+            "id": id,
+            "content": content
+        }))),
+        None => Err((StatusCode::NOT_FOUND, "Policy not found".to_string()))
+    }
+}
+
+/// Actualizar una política existente
+async fn update_policy_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    body: axum::body::Bytes,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let policy_content = String::from_utf8(body.to_vec())
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid UTF-8: {}", e)))?;
+    
+    state.auth_service
+        .update_policy(id.clone(), policy_content)
+        .await
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    
+    Ok(Json(serde_json::json!({
+        "policy_id": id,
+        "message": "Policy updated successfully"
+    })))
+}
+
+/// Eliminar una política
+async fn delete_policy_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    state.auth_service.add_policy(id, body).await.map(|_| StatusCode::CREATED).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))
+    state.auth_service
+        .delete_policy(id)
+        .await
+        .map_err(|e| (StatusCode::NOT_FOUND, e.to_string()))?;
+    
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn find_user(db: &PgPool, token: &str) -> Result<User, (StatusCode, String)> {
@@ -194,6 +293,9 @@ async fn seed_database(db: &PgPool) {
     sqlx::query("INSERT INTO documents (id, owner_id, is_public) VALUES ($1, $2, true) ON CONFLICT (id) DO NOTHING")
         .bind(&doc2_hrn).bind(&bob_hrn).execute(db).await.ok();
     
+    // Políticas en formato Cedar (texto simple)
+    // Los IDs internos de Cedar (policy0, policy1) no importan
+    // Usamos UUIDs en la BD para gestión
     let p_tenant = r#"forbid(principal, action, resource) unless { principal.tenant_id == resource.tenant_id };"#;
     let p_owner = r#"permit(principal, action, resource) when { resource.owner_id == principal.id };"#;
     let p_admin_create = r#"permit(principal, action == Action::"Create", resource) when { principal.role == "admin" };"#;

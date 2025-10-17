@@ -3,35 +3,41 @@
     "entityTypes": {
       "Document": {
         "memberOfTypes": [],
-        "attributes": {
-          "owner_id": {
-            "type": "String",
-            "required": true
-          },
-          "is_public": {
-            "type": "Boolean",
-            "required": true
-          },
-          "tenant_id": {
-            "type": "String"
-          },
-          "service": {
-            "type": "String"
+        "shape": {
+          "type": "Record",
+          "attributes": {
+            "owner_id": {
+              "type": "String",
+              "required": true
+            },
+            "is_public": {
+              "type": "Boolean",
+              "required": true
+            },
+            "tenant_id": {
+              "type": "String"
+            },
+            "service": {
+              "type": "String"
+            }
           }
         }
       },
       "User": {
         "memberOfTypes": [],
-        "attributes": {
-          "role": {
-            "type": "String",
-            "required": true
-          },
-          "tenant_id": {
-            "type": "String"
-          },
-          "service": {
-            "type": "String"
+        "shape": {
+          "type": "Record",
+          "attributes": {
+            "role": {
+              "type": "String",
+              "required": true
+            },
+            "tenant_id": {
+              "type": "String"
+            },
+            "service": {
+              "type": "String"
+            }
           }
         }
       }

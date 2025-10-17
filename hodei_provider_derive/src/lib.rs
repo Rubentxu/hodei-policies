@@ -65,7 +65,15 @@ pub fn hodei_entity_derive(input: TokenStream) -> TokenStream {
 
     attributes.insert("tenant_id".to_string(), serde_json::json!({ "type": "String" }));
     attributes.insert("service".to_string(), serde_json::json!({ "type": "String" }));
-    let schema_fragment_json = serde_json::json!({ "memberOfTypes": [], "attributes": attributes });
+    
+    // Cedar 4.7 usa "shape" con "type": "Record" y "attributes" dentro
+    let schema_fragment_json = serde_json::json!({
+        "memberOfTypes": [],
+        "shape": {
+            "type": "Record",
+            "attributes": attributes
+        }
+    });
     let schema_fragment_str = serde_json::to_string(&schema_fragment_json).unwrap();
 
     let expanded = quote! {

@@ -30,6 +30,7 @@ tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 thiserror = "2.0.17"
 cedar-policy = "4.7.0"
 async-trait = "0.1.80"
+uuid = { version = "1.10", features = ["v4", "serde"] }
 
 [build-dependencies]
 serde_json = "1.0.117"

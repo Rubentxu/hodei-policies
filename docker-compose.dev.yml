@@ -1,0 +1,59 @@
+version: '3.8'
+
+# Docker Compose para DESARROLLO
+# Solo levanta PostgreSQL + herramientas de administración
+# La aplicación se ejecuta localmente con: cargo run
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: hodei_postgres_dev
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: hodei_policies
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Adminer - Herramienta ligera y rápida para gestionar PostgreSQL
+  # Acceso: http://localhost:8080
+  adminer:
+    image: adminer:latest
+    container_name: hodei_adminer_dev
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+      ADMINER_DESIGN: pepa-linha-dark
+    depends_on:
+      - postgres
+
+  # pgAdmin - Herramienta completa para gestionar PostgreSQL
+  # Acceso: http://localhost:5050
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: hodei_pgadmin_dev
+    restart: unless-stopped
+    ports:
+      - "5050:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@hodei.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: 'False'
+    volumes:
+      - pgadmin_dev_data:/var/lib/pgadmin
+    depends_on:
+      - postgres
+
+volumes:
+  postgres_dev_data:
+  pgadmin_dev_data:

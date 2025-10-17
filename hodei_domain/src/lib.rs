@@ -27,7 +27,8 @@ pub struct Document {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DocumentCreatePayload {
     pub resource_id: String,
-    pub owner_id: Hrn,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner_id: Option<Hrn>,
     pub is_public: bool,
 }
 
@@ -44,8 +45,12 @@ impl DocumentCreatePayload {
             hrn.to_string().parse().unwrap(),
         );
 
+        let owner_id_str = self.owner_id.as_ref()
+            .map(|h| h.to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+
         let mut attrs = std::collections::HashMap::new();
-        attrs.insert("owner_id".into(), cedar_policy::RestrictedExpression::new_string(self.owner_id.to_string()));
+        attrs.insert("owner_id".into(), cedar_policy::RestrictedExpression::new_string(owner_id_str));
         attrs.insert("is_public".into(), cedar_policy::RestrictedExpression::new_bool(self.is_public));
         attrs.insert("tenant_id".into(), cedar_policy::RestrictedExpression::new_string(hrn.tenant_id.clone()));
         attrs.insert("service".into(), cedar_policy::RestrictedExpression::new_string(hrn.service.clone()));
