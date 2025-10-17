@@ -291,32 +291,91 @@ fn check_authorization() {
 
 ### 6. Generación Automática de Esquema Cedar
 
-Si usas el feature `schema-discovery`, puedes generar el esquema automáticamente:
+#### Paso 1: Configurar Cargo.toml
+
+Primero, agrega el feature `schema-discovery` y las dependencias necesarias:
+
+```toml
+[package]
+name = "mi-app-con-hodei"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"  # ← Importante: especificar build script
+
+[dependencies]
+hodei-provider = "0.1.0"
+cedar-policy = "4.7.0"
+serde = { version = "1.0", features = ["derive"] }
+
+[build-dependencies]
+hodei-provider = "0.1.0"
+serde_json = "1.0"
+
+# Crate que contiene tus entidades y acciones
+# Debe tener el feature schema-discovery activado
+mi-domain = { path = "./mi-domain", features = ["schema-discovery"] }
+
+[features]
+schema-discovery = []
+```
+
+#### Paso 2: Crear build.rs
+
+Crea un archivo `build.rs` en la raíz de tu proyecto:
 
 ```rust
 // build.rs
 use hodei_provider::inventory;
-use serde_json::json;
+use serde_json::{json, Value};
 use std::collections::BTreeMap;
+use std::env;
+use std::fs;
+use std::path::Path;
+
+// Forzar el enlace del crate que contiene tus entidades
+// Sin esto, el linker no incluye el crate y inventory::iter está vacío
+#[allow(unused_imports)]
+use mi_domain as _;
 
 fn main() {
+    println!("cargo:rerun-if-changed=src/");
+    
     let namespace = "MiApp";
     
     // Recolectar entidades
     let mut entity_types = BTreeMap::new();
     for fragment in inventory::iter::<hodei_provider::EntitySchemaFragment>() {
         let type_name = fragment.entity_type.split("::").last().unwrap();
-        let fragment_value: serde_json::Value = 
+        let fragment_value: Value = 
             serde_json::from_str(fragment.fragment_json).unwrap();
         entity_types.insert(type_name.to_string(), fragment_value);
     }
     
-    // Recolectar acciones
-    let mut actions = BTreeMap::new();
+    // Recolectar acciones y combinar resourceTypes si tienen el mismo nombre
+    let mut actions: BTreeMap<String, Value> = BTreeMap::new();
     for fragment in inventory::iter::<hodei_provider::ActionSchemaFragment>() {
-        let fragment_value: serde_json::Value = 
+        let fragment_value: Value = 
             serde_json::from_str(fragment.fragment_json).unwrap();
-        actions.insert(fragment.name.to_string(), fragment_value);
+        let action_name = fragment.name.to_string();
+        
+        // Si la acción ya existe, combinar resourceTypes
+        if let Some(existing) = actions.get_mut(&action_name) {
+            if let (Some(existing_resources), Some(new_resources)) = (
+                existing.get_mut("appliesTo").and_then(|a| a.get_mut("resourceTypes")),
+                fragment_value.get("appliesTo").and_then(|a| a.get("resourceTypes"))
+            ) {
+                if let (Some(existing_arr), Some(new_arr)) = 
+                    (existing_resources.as_array_mut(), new_resources.as_array()) {
+                    for resource in new_arr {
+                        if !existing_arr.contains(resource) {
+                            existing_arr.push(resource.clone());
+                        }
+                    }
+                }
+            }
+        } else {
+            actions.insert(action_name, fragment_value);
+        }
     }
     
     // Generar esquema completo
@@ -328,13 +387,163 @@ fn main() {
     });
     
     // Guardar a archivo
-    std::fs::write(
-        "cedar_schema.json",
-        serde_json::to_string_pretty(&full_schema).unwrap()
-    ).unwrap();
+    let out_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
+    let dest_path = Path::new(&out_dir).join("cedar_schema.json");
     
-    println!("✅ Esquema Cedar generado");
+    fs::write(
+        &dest_path,
+        serde_json::to_string_pretty(&full_schema).unwrap()
+    ).expect("No se pudo escribir cedar_schema.json");
+    
+    println!("cargo:warning=✅ Esquema Cedar generado en {:?}", dest_path);
 }
+```
+
+#### Paso 3: Estructurar tu Proyecto
+
+```
+mi-app-con-hodei/
+├── Cargo.toml
+├── build.rs           ← Build script
+├── cedar_schema.json  ← Generado automáticamente
+├── src/
+│   └── main.rs
+└── mi-domain/         ← Crate separado con tus entidades
+    ├── Cargo.toml
+    └── src/
+        └── lib.rs
+```
+
+#### Paso 4: Configurar el Crate de Dominio
+
+```toml
+# mi-domain/Cargo.toml
+[package]
+name = "mi-domain"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+hodei-provider = "0.1.0"
+serde = { version = "1.0", features = ["derive"] }
+
+[features]
+schema-discovery = []  # ← Feature para activar generación
+```
+
+```rust
+// mi-domain/src/lib.rs
+use hodei_provider::{HodeiEntity, HodeiAction, hodei_kernel::Hrn};
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize, HodeiEntity)]
+#[hodei(entity_type = "MiApp::User")]
+pub struct User {
+    pub id: Hrn,
+    pub role: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, HodeiEntity)]
+#[hodei(entity_type = "MiApp::Document")]
+pub struct Document {
+    pub id: Hrn,
+    
+    #[entity_type = "MiApp::User"]
+    pub owner_id: Hrn,
+    
+    pub title: String,
+}
+
+#[derive(Debug, Clone, HodeiAction)]
+#[hodei(namespace = "MiApp")]
+pub enum DocumentCommand {
+    #[hodei(principal = "User", resource = "Document", creates_resource)]
+    Create { title: String },
+    
+    #[hodei(principal = "User", resource = "Document")]
+    Read { id: Hrn },
+}
+```
+
+#### Paso 5: Compilar y Generar Esquema
+
+```bash
+# Compilar con el feature schema-discovery
+cargo build --features schema-discovery
+
+# El esquema se genera automáticamente en cedar_schema.json
+cat cedar_schema.json
+```
+
+#### Esquema Generado (Ejemplo)
+
+```json
+{
+  "MiApp": {
+    "entityTypes": {
+      "User": {
+        "memberOfTypes": [],
+        "shape": {
+          "type": "Record",
+          "attributes": {
+            "role": {
+              "type": "String",
+              "required": true
+            },
+            "tenant_id": {
+              "type": "String"
+            }
+          }
+        }
+      },
+      "Document": {
+        "memberOfTypes": [],
+        "shape": {
+          "type": "Record",
+          "attributes": {
+            "owner_id": {
+              "type": "Entity",
+              "name": "MiApp::User",
+              "required": true
+            },
+            "title": {
+              "type": "String",
+              "required": true
+            }
+          }
+        }
+      }
+    },
+    "actions": {
+      "Document::Create": {
+        "appliesTo": {
+          "principalTypes": ["User"],
+          "resourceTypes": ["Document"]
+        }
+      },
+      "Document::Read": {
+        "appliesTo": {
+          "principalTypes": ["User"],
+          "resourceTypes": ["Document"]
+        }
+      }
+    }
+  }
+}
+```
+
+#### 🔄 Regeneración Automática
+
+El esquema se regenera automáticamente cada vez que:
+- Compilas el proyecto
+- Modificas archivos en `src/`
+- Cambias las entidades o acciones
+
+```bash
+# Cualquier compilación regenera el esquema
+cargo build
+cargo run
+cargo test
 ```
 
 ## 🎯 Ejemplo Completo de Aplicación
