@@ -1,3 +1,8 @@
+.DEFAULT_GOAL := help
+.PHONY: help
+
+SCRIPTS_DIR := scripts
+
 .PHONY: help build run test clean docker-up docker-down docker-logs migrate seed
 
 help: ## Mostrar esta ayuda
@@ -147,7 +152,23 @@ clippy: ## Ejecutar linter
 doc: ## Generar documentación
 	cargo doc --no-deps --open
 
-schema: ## Regenerar esquema Cedar
-	cargo build --features schema-discovery
-	@echo "✅ Esquema generado en cedar_schema.json"
-	@cat cedar_schema.json | jq .
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Scripts de utilidad
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+dev-setup: ## Configurar entorno de desarrollo
+	@$(SCRIPTS_DIR)/dev-setup.sh
+
+clean-all: ## Limpiar proyecto completamente
+	@$(SCRIPTS_DIR)/clean.sh
+
+scripts-help: ## Mostrar ayuda de scripts disponibles
+	@echo "Scripts disponibles en $(SCRIPTS_DIR)/:"
+	@echo "  dev-setup.sh         - Configurar entorno de desarrollo"
+	@echo "  clean.sh             - Limpiar proyecto"
+	@echo "  prepare_publish.sh   - Preparar para publicación"
+	@echo "  restore_workspace.sh - Restaurar workspace"
+	@echo "  publish_all.sh       - Publicar en crates.io"
+	@echo ""
+	@echo "Uso: ./$(SCRIPTS_DIR)/<script>.sh"

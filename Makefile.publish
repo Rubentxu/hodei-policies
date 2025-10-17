@@ -1,0 +1,84 @@
+# Makefile para publicación en crates.io
+# Uso: make -f Makefile.publish <comando>
+
+.PHONY: help prepare-publish restore-workspace publish-all dry-run
+
+VERSION := 0.1.0
+CRATES := hodei-hrn hodei-derive hodei-authz hodei-authz-postgres hodei-authz-redis hodei-authz-axum hodei-authz-sdk
+SCRIPTS_DIR := scripts
+
+help:
+	@echo "Comandos de publicación:"
+	@echo "  make -f Makefile.publish prepare-publish  - Preparar para publicación"
+	@echo "  make -f Makefile.publish restore-workspace - Restaurar workspace"
+	@echo "  make -f Makefile.publish dry-run          - Simular publicación"
+	@echo "  make -f Makefile.publish publish-all      - Publicar en crates.io"
+	@echo ""
+	@echo "Scripts disponibles en $(SCRIPTS_DIR)/"
+
+prepare-publish:
+	@echo "📦 Preparando crates para publicación..."
+	@find crates -name "Cargo.toml" -exec cp {} {}.backup \;
+	@sed -i 's/hodei-hrn = { workspace = true }/hodei-hrn = "$(VERSION)"/g' crates/hodei-authz/Cargo.toml
+	@sed -i 's/hodei-derive = { workspace = true }/hodei-derive = "$(VERSION)"/g' crates/hodei-authz/Cargo.toml
+	@sed -i 's/hodei-authz = { workspace = true }/hodei-authz = "$(VERSION)"/g' crates/hodei-authz-postgres/Cargo.toml
+	@sed -i 's/hodei-authz = { workspace = true }/hodei-authz = "$(VERSION)"/g' crates/hodei-authz-redis/Cargo.toml
+	@sed -i 's/hodei-authz = { workspace = true }/hodei-authz = "$(VERSION)"/g' crates/hodei-authz-axum/Cargo.toml
+	@sed -i 's/hodei-hrn = { workspace = true }/hodei-hrn = "$(VERSION)"/g' crates/hodei-authz-sdk/Cargo.toml
+	@sed -i 's/hodei-authz = { workspace = true }/hodei-authz = "$(VERSION)"/g' crates/hodei-authz-sdk/Cargo.toml
+	@sed -i 's/hodei-derive = { workspace = true }/hodei-derive = "$(VERSION)"/g' crates/hodei-authz-sdk/Cargo.toml
+	@sed -i 's/hodei-authz-postgres = { workspace = true, optional = true }/hodei-authz-postgres = { version = "$(VERSION)", optional = true }/g' crates/hodei-authz-sdk/Cargo.toml
+	@sed -i 's/hodei-authz-redis = { workspace = true, optional = true }/hodei-authz-redis = { version = "$(VERSION)", optional = true }/g' crates/hodei-authz-sdk/Cargo.toml
+	@sed -i 's/hodei-authz-axum = { workspace = true, optional = true }/hodei-authz-axum = { version = "$(VERSION)", optional = true }/g' crates/hodei-authz-sdk/Cargo.toml
+	@echo "✅ Crates preparados (backups en *.backup)"
+
+restore-workspace:
+	@echo "🔄 Restaurando workspace..."
+	@if ls crates/*/Cargo.toml.backup 1> /dev/null 2>&1; then \
+		for backup in crates/*/Cargo.toml.backup; do \
+			original=$${backup%.backup}; \
+			cp "$$backup" "$$original"; \
+			rm "$$backup"; \
+		done; \
+		echo "✅ Restaurado desde backups"; \
+	else \
+		git checkout crates/*/Cargo.toml; \
+		echo "✅ Restaurado con git"; \
+	fi
+
+dry-run: prepare-publish
+	@echo "🔍 Simulando publicación..."
+	@for crate in $(CRATES); do \
+		echo ""; \
+		echo "📦 Dry-run: $$crate"; \
+		(cd crates/$$crate && cargo publish --dry-run) || exit 1; \
+	done
+	@$(MAKE) -f Makefile.publish restore-workspace
+	@echo "✅ Dry-run completado"
+
+publish-all:
+	@echo "🚀 Publicando en crates.io..."
+	@echo ""
+	@read -p "¿Has ejecutado 'cargo login'? (y/n) " answer; \
+	if [ "$$answer" != "y" ]; then \
+		echo "Ejecuta primero: cargo login <token>"; \
+		exit 1; \
+	fi
+	@$(MAKE) -f Makefile.publish prepare-publish
+	@echo "🔨 Verificando compilación..."
+	@if ! cargo check --workspace; then \
+		echo "❌ Compilación falló"; \
+		$(MAKE) -f Makefile.publish restore-workspace; \
+		exit 1; \
+	fi
+	@echo "📤 Publicando crates..."
+	@for crate in $(CRATES); do \
+		echo ""; \
+		echo "📦 Publicando: $$crate"; \
+		(cd crates/$$crate && cargo publish) || exit 1; \
+		echo "✅ $$crate publicado"; \
+		sleep 15; \
+	done
+	@$(MAKE) -f Makefile.publish restore-workspace
+	@echo ""
+	@echo "🎉 ¡PUBLICACIÓN COMPLETADA!"

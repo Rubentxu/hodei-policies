@@ -3,9 +3,15 @@
 use crate::schema::{auto_discover_schema, SchemaError};
 use cedar_policy::{Authorizer, PolicySet, Schema};
 use hodei_authz::{CacheInvalidation, PolicyStore};
+
+#[cfg(feature = "postgres")]
 use hodei_authz_postgres::PostgresPolicyStore;
-use hodei_authz_redis::RedisCacheInvalidation;
+#[cfg(feature = "postgres")]
 use sqlx::PgPool;
+
+#[cfg(feature = "redis")]
+use hodei_authz_redis::RedisCacheInvalidation;
+
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -33,7 +39,9 @@ pub enum BuildError {
 
 /// Servicio de autorización completo
 pub struct HodeiAuthService {
+    #[cfg(feature = "postgres")]
     pub(crate) policy_store: Arc<PostgresPolicyStore>,
+    #[cfg(feature = "redis")]
     pub(crate) cache_invalidation: Arc<RedisCacheInvalidation>,
     pub(crate) authorizer: Authorizer,
     pub(crate) schema: Arc<Schema>,
@@ -42,9 +50,12 @@ pub struct HodeiAuthService {
 
 /// Builder para HodeiAuthService
 pub struct HodeiAuthServiceBuilder {
+    #[cfg(feature = "postgres")]
     postgres_pool: Option<PgPool>,
+    #[cfg(feature = "redis")]
     redis_url: Option<String>,
     schema: Option<Schema>,
+    #[cfg(feature = "postgres")]
     auto_migrate: bool,
 }
 
@@ -58,20 +69,25 @@ impl HodeiAuthServiceBuilder {
     /// Crea un nuevo builder
     pub fn new() -> Self {
         Self {
+            #[cfg(feature = "postgres")]
             postgres_pool: None,
+            #[cfg(feature = "redis")]
             redis_url: None,
             schema: None,
+            #[cfg(feature = "postgres")]
             auto_migrate: true,
         }
     }
     
     /// Configura el pool de PostgreSQL
+    #[cfg(feature = "postgres")]
     pub fn with_postgres(mut self, pool: PgPool) -> Self {
         self.postgres_pool = Some(pool);
         self
     }
     
     /// Configura la URL de Redis
+    #[cfg(feature = "redis")]
     pub fn with_redis(mut self, url: impl Into<String>) -> Self {
         self.redis_url = Some(url.into());
         self
@@ -93,12 +109,14 @@ impl HodeiAuthServiceBuilder {
     }
     
     /// Deshabilita las migraciones automáticas
+    #[cfg(feature = "postgres")]
     pub fn without_auto_migrate(mut self) -> Self {
         self.auto_migrate = false;
         self
     }
     
     /// Construye el servicio
+    #[cfg(all(feature = "postgres", feature = "redis"))]
     pub async fn build(self) -> Result<HodeiAuthService, BuildError> {
         // Validar configuración
         let pool = self.postgres_pool.ok_or(BuildError::MissingPostgres)?;
@@ -142,6 +160,7 @@ impl HodeiAuthServiceBuilder {
     }
     
     /// Carga las políticas iniciales
+    #[cfg(feature = "postgres")]
     async fn load_initial_policies(
         store: &PostgresPolicyStore,
     ) -> Result<PolicySet, BuildError> {
@@ -164,6 +183,7 @@ impl HodeiAuthService {
     }
     
     /// Recarga las políticas
+    #[cfg(feature = "postgres")]
     pub async fn reload_policies(&self) -> Result<(), BuildError> {
         let new_policy_set = self
             .policy_store
@@ -178,6 +198,7 @@ impl HodeiAuthService {
     }
     
     /// Invalida el caché
+    #[cfg(feature = "redis")]
     pub async fn invalidate_cache(&self) -> Result<(), BuildError> {
         self.cache_invalidation
             .invalidate_policies()

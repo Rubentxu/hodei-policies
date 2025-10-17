@@ -3,14 +3,15 @@ name = "hodei-hrn"
 version = "0.1.0"
 edition = "2024"
 authors = ["Ruben Dario Cabrera Garcia <rubentxu74@gmail.com>"]
-description = "Core types for Hodei authorization framework - HRN and RequestContext"
-license = "MIT"
+description = "Hodei Resource Names (HRN) - Unique resource identification system for authorization"
+license = "MIT OR Apache-2.0"
 repository = "https://github.com/Rubentxu/hodei-policies"
-homepage = "https://github.com/Rubentxu/hodei-policies"
 documentation = "https://docs.rs/hodei-hrn"
-keywords = ["authorization", "hrn", "resource-name", "iam"]
-categories = ["authentication", "data-structures"]
+homepage = "https://github.com/Rubentxu/hodei-policies"
+keywords = ["hrn", "resource", "identifier", "authorization"]
+categories = ["data-structures", "authentication"]
 readme = "README.md"
+exclude = ["tests/fixtures/*"]
 
 [dependencies]
 serde = { workspace = true }

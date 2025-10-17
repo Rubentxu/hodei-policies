@@ -3,13 +3,13 @@ name = "hodei-derive"
 version = "0.1.0"
 edition = "2024"
 authors = ["Ruben Dario Cabrera Garcia <rubentxu74@gmail.com>"]
-description = "Derive macros for Hodei authorization framework - HodeiEntity and HodeiAction"
-license = "MIT"
+description = "Derive macros for Hodei authorization framework - auto-generate Cedar schemas"
+license = "MIT OR Apache-2.0"
 repository = "https://github.com/Rubentxu/hodei-policies"
 homepage = "https://github.com/Rubentxu/hodei-policies"
 documentation = "https://docs.rs/hodei-derive"
-keywords = ["authorization", "cedar", "macro", "derive"]
-categories = ["authentication", "development-tools::procedural-macro-helpers"]
+keywords = ["derive", "macro", "authorization", "cedar"]
+categories = ["development-tools::procedural-macro-helpers", "authentication"]
 readme = "README.md"
 
 [lib]
@@ -21,4 +21,3 @@ quote = { workspace = true }
 proc-macro2 = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-hodei-hrn = { workspace = true }

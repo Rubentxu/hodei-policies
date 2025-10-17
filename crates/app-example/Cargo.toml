@@ -1,10 +1,10 @@
 [package]
 name = "app-example"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 authors = ["Ruben Dario Cabrera Garcia <rubentxu74@gmail.com>"]
 description = "Example application using Hodei Framework - Multi-tenant authorization with Cedar Policy"
-license = "MIT"
+license = "MIT OR Apache-2.0"
 repository = "https://github.com/Rubentxu/hodei-policies"
 homepage = "https://github.com/Rubentxu/hodei-policies"
 keywords = ["authorization", "cedar", "policy", "example"]

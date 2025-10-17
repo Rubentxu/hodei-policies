@@ -1,18 +1,19 @@
 [package]
 name = "hodei-authz-postgres"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 authors = ["Ruben Dario Cabrera Garcia <rubentxu74@gmail.com>"]
-description = "PostgreSQL adapter for Hodei authorization framework"
-license = "MIT"
+description = "PostgreSQL policy store adapter for Hodei authorization framework"
+license = "MIT OR Apache-2.0"
 repository = "https://github.com/Rubentxu/hodei-policies"
 documentation = "https://docs.rs/hodei-authz-postgres"
+homepage = "https://github.com/Rubentxu/hodei-policies"
 keywords = ["authorization", "postgres", "policy", "storage"]
 categories = ["authentication", "database"]
 readme = "README.md"
 
 [dependencies]
-hodei-authz = { workspace = true }
+hodei-authz = "0.1.0"
 sqlx = { workspace = true }
 uuid = { workspace = true }
 async-trait = { workspace = true }

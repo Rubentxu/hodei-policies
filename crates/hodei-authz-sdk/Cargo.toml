@@ -1,31 +1,33 @@
 [package]
 name = "hodei-authz-sdk"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 authors = ["Ruben Dario Cabrera Garcia <rubentxu74@gmail.com>"]
-description = "Cedar Policy-based authorization framework for Rust applications"
-license = "MIT"
+description = "Complete Cedar Policy-based authorization SDK with auto-discovery and builder pattern"
+license = "MIT OR Apache-2.0"
 repository = "https://github.com/Rubentxu/hodei-policies"
-documentation = "https://docs.rs/hodei"
-keywords = ["authorization", "cedar", "iam", "policy", "framework"]
+documentation = "https://docs.rs/hodei-authz-sdk"
+homepage = "https://github.com/Rubentxu/hodei-policies"
+keywords = ["authorization", "cedar", "policy", "sdk"]
 categories = ["authentication", "web-programming"]
 readme = "README.md"
 
 [dependencies]
-hodei-hrn = { workspace = true }
-hodei-authz = { workspace = true }
-hodei-derive = { workspace = true }
-hodei-authz-postgres = { workspace = true, optional = true }
-hodei-authz-redis = { workspace = true, optional = true }
-hodei-authz-axum = { workspace = true, optional = true }
+hodei-hrn = "0.1.0"
+hodei-authz = "0.1.0"
+hodei-derive = "0.1.0"
+hodei-authz-postgres = { version = "0.1.0", optional = true }
+hodei-authz-redis = { version = "0.1.0", optional = true }
+hodei-authz-axum = { version = "0.1.0", optional = true }
 
 # Para el builder y schema
-cedar-policy = "4.2"
-sqlx = { workspace = true }
-tokio = { workspace = true }
-serde_json = { workspace = true }
-thiserror = { workspace = true }
-tracing = { workspace = true }
+cedar-policy = "4.7"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+tracing = "0.1"
+tokio = { version = "1.48", features = ["full"] }
+inventory = "0.3"
 
 [features]
 default = []

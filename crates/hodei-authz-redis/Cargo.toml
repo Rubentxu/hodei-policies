@@ -1,18 +1,19 @@
 [package]
 name = "hodei-authz-redis"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 authors = ["Ruben Dario Cabrera Garcia <rubentxu74@gmail.com>"]
-description = "Redis cache adapter for Hodei authorization framework"
-license = "MIT"
+description = "Redis cache invalidation adapter for Hodei authorization framework"
+license = "MIT OR Apache-2.0"
 repository = "https://github.com/Rubentxu/hodei-policies"
 documentation = "https://docs.rs/hodei-authz-redis"
+homepage = "https://github.com/Rubentxu/hodei-policies"
 keywords = ["authorization", "redis", "cache", "invalidation"]
 categories = ["authentication", "caching"]
 readme = "README.md"
 
 [dependencies]
-hodei-authz = { workspace = true }
+hodei-authz = "0.1.0"
 redis = { version = "0.32", features = ["tokio-comp"] }
 async-trait = { workspace = true }
 tokio = { workspace = true }
