@@ -1,6 +1,51 @@
 {
   "HodeiMVP": {
     "entityTypes": {
+      "Artifact": {
+        "memberOfTypes": [],
+        "shape": {
+          "type": "Record",
+          "attributes": {
+            "created_by": {
+              "type": "Entity",
+              "name": "HodeiMVP::User",
+              "required": true
+            },
+            "updated_by": {
+              "type": "Entity",
+              "name": "HodeiMVP::User",
+              "required": true
+            },
+            "document_id": {
+              "type": "Entity",
+              "name": "HodeiMVP::Document",
+              "required": true
+            },
+            "name": {
+              "type": "String",
+              "required": true
+            },
+            "artifact_type": {
+              "type": "String",
+              "required": true
+            },
+            "version": {
+              "type": "String",
+              "required": true
+            },
+            "is_active": {
+              "type": "Boolean",
+              "required": true
+            },
+            "tenant_id": {
+              "type": "String"
+            },
+            "service": {
+              "type": "String"
+            }
+          }
+        }
+      },
       "Document": {
         "memberOfTypes": [],
         "shape": {

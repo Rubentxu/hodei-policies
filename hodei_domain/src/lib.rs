@@ -125,10 +125,17 @@ impl ArtifactCreatePayload {
 
         let mut attrs = std::collections::HashMap::new();
         
-        // created_by es el usuario actual
+        // created_by y updated_by - en producción vendrían del contexto de autenticación
+        // Por ahora usamos un placeholder para demostrar el esquema
+        let placeholder_user_hrn = Hrn::builder()
+            .service("users-api")
+            .tenant_id(&context.tenant_id)
+            .resource("user/placeholder").unwrap()
+            .build().unwrap();
+        
         let creator_euid = EntityUid::from_type_name_and_id(
             "HodeiMVP::User".parse().unwrap(),
-            context.principal_hrn.to_string().parse().unwrap(),
+            placeholder_user_hrn.to_string().parse().unwrap(),
         );
         attrs.insert("created_by".into(), cedar_policy::RestrictedExpression::new_entity_uid(creator_euid.clone()));
         attrs.insert("updated_by".into(), cedar_policy::RestrictedExpression::new_entity_uid(creator_euid));
